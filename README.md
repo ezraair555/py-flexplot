@@ -4,6 +4,8 @@ A Python port of Dustin Fife's [`flexplot`](https://github.com/dustinfife/flexpl
 
 `py-flexplot` provides intelligent data visualization using a formula-based syntax, similar to the original R implementation but powered by `plotnine` for a consistent "grammar of graphics" look and feel in Python.
 
+![Titanic Example](docs/assets/titanic/plot2_sex.png)
+
 ## Included R Packages
 - **flexplot**: Intelligent multivariate graphics via formulas.
 - **fifer/fifer2**: Biostatistical toolbox for data cleanup and analysis.

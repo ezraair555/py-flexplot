@@ -28,6 +28,8 @@ Visualizing latent variable models.
 
 ---
 
-## Getting Started
+## Examples & Case Studies
 
-Check out the [Quickstart Notebook](../notebooks/quickstart.ipynb) for a visual introduction to the formula syntax and automatic geom selection.
+- **[Titanic Survival Analysis](examples/titanic.md)** (Visual Walkthrough with Plots)
+- **[Quickstart Notebook](../notebooks/quickstart.ipynb)** (Interactive Exploration)
+- **[Biostatistics & Empirical Bayes](../examples/notebooks/stats_and_eb.ipynb)** (Data Cleanup and Shrinkage)
