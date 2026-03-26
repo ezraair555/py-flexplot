@@ -1,0 +1,59 @@
+Metadata-Version: 2.4
+Name: py-flexplot
+Version: 0.1.0
+Summary: Python port of Dustin Fife's R visualization and analysis packages (flexplot, fifer, etc.)
+Author-email: "John C. Vallier" <jcvallier.cpa@gmail.com>
+License: MIT
+Project-URL: Homepage, https://github.com/ezraair555/py-flexplot
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.23
+Requires-Dist: pandas>=1.5
+Requires-Dist: scipy>=1.11
+Requires-Dist: plotnine>=0.12
+Requires-Dist: statsmodels>=0.14
+Requires-Dist: patsy>=0.5
+Requires-Dist: scikit-learn>=1.2
+Requires-Dist: semopy>=2.3
+
+# py-flexplot
+
+A Python port of Dustin Fife's [`flexplot`](https://github.com/dustinfife/flexplot) and related R packages (`fifer`, `flexplavaan`, etc.). 
+
+`py-flexplot` provides intelligent data visualization using a formula-based syntax, similar to the original R implementation but powered by `plotnine` for a consistent "grammar of graphics" look and feel in Python.
+
+## Included R Packages
+- **flexplot**: Intelligent multivariate graphics via formulas.
+- **fifer/fifer2**: Biostatistical toolbox for data cleanup and analysis.
+- **flexplavaan**: Visualizing latent variable models (SEM).
+- **flex_nn**: Neural network visualization (In progress).
+- **flexifiers**: Data transformation utilities (In progress).
+
+## Installation
+
+```bash
+pip install py-flexplot
+```
+
+## Quick Start
+
+```python
+import pandas as pd
+from pyflexplot import flexplot
+
+# Load data
+df = pd.read_csv("data.csv")
+
+# Intelligent plotting based on formula
+# y ~ x | z (y by x, faceted by z)
+p = flexplot("y ~ x | z", data=df)
+p.draw()
+```
+
+## Features
+- **Formula Syntax**: Uses `y ~ x + z | a` to automatically determine plot types.
+- **Model Comparison**: Visually compare the fit of different statistical models.
+- **Biostats Utilities**: Ported functions from `fifer` for common statistical tasks.
+
+## License
+MIT
