@@ -23,20 +23,27 @@ pip install py-flexplot
 
 ```python
 import pandas as pd
-from pyflexplot import flexplot
+from pyflexplot import flexplot, visualize
+import statsmodels.formula.api as smf
 
 # Load data
 df = pd.read_csv("data.csv")
 
-# Intelligent plotting based on formula
+# 1. Formula-based visualization
 # y ~ x | z (y by x, faceted by z)
 p = flexplot("y ~ x | z", data=df)
 p.draw()
+
+# 2. Model visualization
+model = smf.ols("y ~ x", data=df).fit()
+p_viz = visualize(model, data=df)
+p_viz.draw()
 ```
 
 ## Features
 - **Formula Syntax**: Uses `y ~ x + z | a` to automatically determine plot types.
-- **Model Comparison**: Visually compare the fit of different statistical models.
+- **Model Visualization**: Directly `visualize(model)` to see predicted vs actuals.
+- **Model Comparison**: Use `compare_fits(formula, data, m1, m2)` to see performance side-by-side.
 - **Biostats Utilities**: Ported functions from `fifer` for common statistical tasks.
 
 ## License

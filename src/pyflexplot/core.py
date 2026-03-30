@@ -82,20 +82,62 @@ def flexplot(formula: str, data: pd.DataFrame, method: str = "auto", **kwargs):
     p += theme_bw()
     return p
 
-def visualize(model, **kwargs):
+def visualize(model, data: Optional[pd.DataFrame] = None, **kwargs):
     """
     Provides a visual representation of a fitted statistical object.
-    Supports statsmodels and sklearn models.
+    Supports statsmodels (OLS, GLM) and scikit-learn models.
     """
-    # TODO: Implement prediction-based visualization
+    if data is None:
+        if hasattr(model, 'model') and hasattr(model.model, 'data'):
+            data = pd.DataFrame(model.model.data.orig_endog).join(pd.DataFrame(model.model.data.orig_exog))
+        else:
+            return "Error: No data provided for visualization."
+
+    # Prediction-based visualization for statsmodels
+    if hasattr(model, 'predict'):
+        y_pred = model.predict(data)
+        y_name = model.model.endog_names
+        
+        plot_df = data.copy()
+        plot_df['__predicted'] = y_pred
+        
+        # Determine the first predictor
+        x_name = model.model.exog_names[1] if len(model.model.exog_names) > 1 else model.model.exog_names[0]
+        
+        p = (ggplot(plot_df, aes(x=x_name, y=y_name))
+             + geom_point(alpha=0.4)
+             + geom_line(aes(y='__predicted'), color="red", size=1)
+             + labs(title=f"Visualization: {type(model).__name__}", 
+                    subtitle=f"Predicted {y_name} vs {x_name}")
+             + theme_bw())
+        return p
+        
     return f"Visualization for {type(model).__name__} not yet implemented."
 
-def compare_fits(formula: str, data: pd.DataFrame, model1, model2, **kwargs):
+def compare_fits(formula: str, data: pd.DataFrame, model1, model2, labels: List[str] = ["Model 1", "Model 2"], **kwargs):
     """
-    Visually compare the fit of two different models.
+    Visually compare the fit of two different models (statsmodels/sklearn).
     """
-    # TODO: Implement comparison plot
-    return "Comparison plot not yet implemented."
+    vars = parse_flexplot_formula(formula)
+    y_name = vars["y"]
+    x_name = vars["x"]
+    
+    pred1 = model1.predict(data)
+    pred2 = model2.predict(data)
+    
+    plot_df = data.copy()
+    plot_df['__m1'] = pred1
+    plot_df['__m2'] = pred2
+    
+    p = (ggplot(plot_df, aes(x=x_name, y=y_name))
+         + geom_point(alpha=0.3)
+         + geom_line(aes(y='__m1', color='"#3498db"'), size=1)
+         + geom_line(aes(y='__m2', color='"#e74c3c"'), size=1)
+         + scale_color_identity(guide='legend', name="Model", labels=labels, breaks=["#3498db", "#e74c3c"])
+         + labs(title="Visual Model Comparison", x=x_name, y=y_name)
+         + theme_bw())
+    
+    return p
 
 def added_plot(formula: str, data: pd.DataFrame, **kwargs):
     """
