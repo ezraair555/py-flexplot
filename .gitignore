@@ -1,0 +1,87 @@
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.cache
+coverage.xml
+*.cover
+.hypothesis/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Type checkers
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# OpenClaw workspace artifacts
+.openclaw/
+.clawhub/
+heartbeat-state.json
+
+# Generated docs
+docs/_build/
+docs/_generated/
+
+# Data files (often large + sensitive)
+*.duckdb
+*.sqlite
+*.sqlite3
+*.db
+data/raw/
+data/private/
