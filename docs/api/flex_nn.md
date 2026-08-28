@@ -81,10 +81,45 @@ attribute exposes the baseline metric value.
 
 ## Backend selection
 
-The default backend is **torch**.  Keras 3 is supported opportunistically
-when `keras` is importable; no keras dependency is declared in
-`pyproject.toml`.  Use `is_torch_model(obj)` / `is_keras_model(obj)` to
-inspect whether an object is recognised by the wrappers.
+The default backend is **torch**.  Keras 3 is supported transparently when
+`keras` is importable; no keras dependency is declared in
+`pyproject.toml`.
+
+To use the keras path, install a backend and set `KERAS_BACKEND`:
+
+```bash
+pip install "keras[jax]"     # or keras[tensorflow] / keras[torch]
+KERAS_BACKEND=jax python ...
+```
+
+The wrapper infers the backend from the model:
+
+```python
+import keras
+model = keras.Sequential([
+    keras.layers.Input(shape=(3,)),
+    keras.layers.Dense(8, activation="relu"),
+    keras.layers.Dense(1),
+])
+model.compile(optimizer="adam", loss="mse")
+model.fit(X, y, epochs=100, verbose=0)
+
+fit = NeuralNetFit(
+    model=model,
+    response_var="y",
+    predictor_names=["x1", "x2", "x3"],
+)
+```
+
+When predicting, the wrapper passes `training=False` to the Keras call so
+`Dropout` / `BatchNorm` layers evaluate deterministically.  Custom
+`Model` subclasses whose `predict()` doesn't accept the `training`
+keyword fall back to a plain predict call automatically.
+
+Use `is_torch_model(obj)` / `is_keras_model(obj)` to introspect, or pass
+`backend="keras"` / `backend="torch"` to the constructor to override the
+inference (useful for custom subclasses that don't match the duck-type
+check).
 
 ## Why this design
 

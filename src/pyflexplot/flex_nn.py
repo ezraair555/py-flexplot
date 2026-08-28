@@ -253,7 +253,12 @@ class NeuralNetFit:
         return X
 
     def predict(self, data: pd.DataFrame) -> pd.Series:
-        """Return predictions for *data* aligned to its row index."""
+        """Return predictions for *data* aligned to its row index.
+
+        For Keras models, predictions are made with ``training=False`` so
+        dropout/batchnorm layers behave as they did at evaluation time.  For
+        Torch models the computation runs under ``torch.no_grad()``.
+        """
         X = self._prepare_matrix(data)
 
         if self.backend == "torch":
@@ -264,7 +269,7 @@ class NeuralNetFit:
             arr = raw.detach().cpu().numpy()
 
         elif self.backend == "keras":
-            arr = self.model.predict(X, verbose=0)
+            arr = self._keras_predict(X)
 
         else:  # pragma: no cover -- validated in __post_init__
             raise RuntimeError(f"unsupported backend: {self.backend!r}")
@@ -272,13 +277,39 @@ class NeuralNetFit:
         arr = np.asarray(arr)
         if arr.ndim == 2 and arr.shape[1] == 1:
             arr = arr.ravel()
-        elif arr.ndim != 1:
+        elif arr.ndim > 2:
             raise ValueError(
                 f"Network predictions must be 1-D (or 2-D with one output column); "
                 f"got shape {arr.shape}"
             )
 
         return pd.Series(arr, index=data.index, name=f"{self.response_var}__pred")
+
+    def _keras_predict(self, X: np.ndarray) -> np.ndarray:
+        """Call a Keras model in inference mode.
+
+        Keras3's ``Model.predict`` accepts a ``training=False`` argument; we
+        pass it explicitly so models with Dropout or BatchNorm behave the
+        same way they did during validation.  Some custom ``Model`` subclasses
+        don't accept ``training`` as a kwarg -- we retry without it in that
+        case, after setting the model's ``training`` attribute to False if
+        available.
+        """
+        import keras as _keras
+
+        # If the model exposes a mutable training flag, force inference first
+        # so a custom call() implementation that ignores the kwarg still works.
+        if hasattr(self.model, "training"):
+            try:
+                self.model.training = False
+            except Exception:
+                pass
+
+        try:
+            return np.asarray(self.model.predict(X, verbose=0, training=False))
+        except TypeError:
+            # Fall back for custom Models whose call() doesn't accept training=.
+            return np.asarray(self.model.predict(X, verbose=0))
 
     # -- introspection -----------------------------------------------------
 
