@@ -118,12 +118,6 @@ All workflows upload coverage via `pytest-cov`.
 
 ## Changelog
 
-### 0.2.0 (2026-08-28)
-- Added `pyflexplot.flex_nn` — torch-default wrappers for fitting and visualizing neural networks. `NeuralNetFit` bundles a fitted `torch.nn.Module` (or `keras.Model`) with the metadata needed to plug into `compare_fits`. `permutation_importance()` provides column-shuffling variable importance.
-- Added `pyflexplot.bluepill` — port of Dustin Fife's `bluepill` R package. `estimate_sd()` recovers an SD from a known mean and min/max range; `mixed_model()` generates clustered synthetic data with fixed + random effects, interactions, and polynomial terms.
-- Dropped the aspirational `flexifiers` bullet from the "Included R Packages" list (no corresponding R package was found).
-- Added 50 new tests across the two modules (60 → 110). Test suite uses `pytest.importorskip("torch")` so the package still imports cleanly without torch installed, but `flex_nn` tests skip when torch is absent.
-
 ### 0.3.0 (2026-08-28)
 - **`visualize()` now accepts `NeuralNetFit` wrappers** (DESIGN-7 from the v0.2.2 review). The duck-type dispatch avoids importing `flex_nn` at module load time, so the core module stays cheap when neural-net support isn't needed. The output mirrors the statsmodels `visualize()`: predicted-vs-actual line on top of a scatter. 7 new tests in `tests/test_design_followups.py::TestVisualizeNeuralNetFit`.
 - **`flexplot()` method validation** (DESIGN-4) — unknown `method` values now raise `ValueError` instead of silently producing no smooth. The `method` parameter is checked against a `{auto, lm, loess}` whitelist at entry.
@@ -144,6 +138,12 @@ All workflows upload coverage via `pytest-cov`.
 - Added `tests/test_flex_nn_keras.py` with 14 keras-specific tests (skip when keras isn't installed; verified against `keras==3.15.1` + `jax` backend). Total test surface: 110 (core + torch) + 14 (keras when available) = 124.
 - CI: split into three workflows -- `python-app.yml` (core, no optional deps, Python 3.10-3.13), `torch.yml` (torch CPU install, weekly schedule to catch upstream regressions), `keras3.yml` (keras[jax] install, weekly schedule, PRs touching flex_nn).
 - Extended the example notebook with a Keras 3 walk-through and added a README section describing the optional install + backend selection.
+
+### 0.2.0 (2026-08-28)
+- Added `pyflexplot.flex_nn` — torch-default wrappers for fitting and visualizing neural networks. `NeuralNetFit` bundles a fitted `torch.nn.Module` (or `keras.Model`) with the metadata needed to plug into `compare_fits`. `permutation_importance()` provides column-shuffling variable importance.
+- Added `pyflexplot.bluepill` — port of Dustin Fife's `bluepill` R package. `estimate_sd()` recovers an SD from a known mean and min/max range; `mixed_model()` generates clustered synthetic data with fixed + random effects, interactions, and polynomial terms.
+- Dropped the aspirational `flexifiers` bullet from the "Included R Packages" list (no corresponding R package was found).
+- Added 50 new tests across the two modules (60 → 110). Test suite uses `pytest.importorskip("torch")` so the package still imports cleanly without torch installed, but `flex_nn` tests skip when torch is absent.
 
 ### 0.1.1 (2026-06-20)
 - Hardened `parse_flexplot_formula()` validation (exactly one `~`, at most one `|`, trimmed tokens, intercept-only handling, empty outcome/predictor rejection).
