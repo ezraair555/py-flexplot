@@ -1,0 +1,50 @@
+name: Keras 3 backend tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "src/pyflexplot/flex_nn.py"
+      - "tests/test_flex_nn_keras.py"
+      - ".github/workflows/keras3.yml"
+  schedule:
+    # Weekly run to catch upstream Keras regressions.
+    - cron: "0 6 * * 2"
+
+jobs:
+  keras3-tests:
+    name: pytest with Keras 3 (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: pip
+    - name: Install package
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+    - name: Install Keras 3 (JAX backend)
+      # JAX backend is the lightest Keras 3 install on GitHub runners --
+      # no TensorFlow or CUDA build needed. We deliberately test against
+      # the JAX backend because (a) it doesn't require the tf install,
+      # which is heavy on CI runners, and (b) it's the most
+      # API-compatible backend with Keras 3's reference impl. The
+      # tensorflow and torch backends use the same keras.Model API.
+      run: |
+        pip install pytest pytest-cov
+        pip install "keras" jax jaxlib
+    - name: Run flex_nn keras tests
+      env:
+        KERAS_BACKEND: jax
+      run: |
+        pytest tests/test_flex_nn_keras.py -v

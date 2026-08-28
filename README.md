@@ -41,7 +41,7 @@ pip install -e .
 
 ```python
 import pandas as pd
-from pyflexplot import flexplot, visualize
+from pyflexplot import flexplot, visualize, compare_fits
 import statsmodels.formula.api as smf
 
 # Load data
@@ -56,15 +56,65 @@ p.draw()
 model = smf.ols("y ~ x", data=df).fit()
 p_viz = visualize(model, data=df)
 p_viz.draw()
+
+# 3. Compare two models side-by-side (statsmodels or scikit-learn)
+p_cmp = compare_fits("y ~ x", data=df, model1=model, model2=model)
+
+# 4. Drop a fitted neural network into compare_fits
+from pyflexplot.flex_nn import NeuralNetFit, set_response_var
+import torch
+
+torch_model = torch.nn.Sequential(torch.nn.Linear(3, 8), torch.nn.ReLU(),
+                                  torch.nn.Linear(8, 1)).eval()
+set_response_var(torch_model, "y")
+nn_fit = NeuralNetFit(model=torch_model, response_var="y",
+                      predictor_names=["x1", "x2", "x3"])
+p_nn = compare_fits("y ~ x1", data=df, model1=model, model2=nn_fit)
+
+# 5. Generate a synthetic clustered dataset for demos or power analyses
+from pyflexplot import mixed_model
+
+df_sim = mixed_model(
+    fixed=[0.0, 0.2, 0.5, 0.3, 0.2],
+    random=[0.1, 0.1, 0.0, 0.2, 0.1],
+    sigma=0.3, clusters=15, n_per=[11, 3],
+    vars={"depression": (10.0, 3.0, 0),
+          "stress":     (22.0, 7.0, 0),
+          "life_events": ["no", "yes"],
+          "ses":        (55.0, 15.0, 0),
+          "therapist":  [f"Dr. {chr(65 + i)}" for i in range(15)]},
+    seed=42,
+)
 ```
+
+See `examples/notebooks/flex_nn_example.ipynb` for an end-to-end
+walk-through of the new functionality.
 
 ## Features
 - **Formula Syntax**: Uses `y ~ x + z | a` to automatically determine plot types.
 - **Model Visualization**: Directly `visualize(model)` to see predicted vs actuals.
 - **Model Comparison**: Use `compare_fits(formula, data, m1, m2)` to see performance side-by-side.
-- **Neural-Network Integration (torch + Keras 3)**: Wrap a fitted `torch.nn.Module` or `keras.Model` with `NeuralNetFit` to drop it into `compare_fits` next to a statsmodels fit. Keras 3 models are evaluated with `training=False` so Dropout/BatchNorm behave deterministically; torch models use `torch.no_grad()`.
-- **Synthetic Data Generation**: `mixed_model(...)` produces clustered data with fixed + random effects for demos, teaching, and power analyses.
+- **Neural-Network Integration (torch + Keras 3)**: Wrap a fitted `torch.nn.Module` or `keras.Model` with `NeuralNetFit` to drop it into `compare_fits` next to a statsmodels fit. Keras 3 models are evaluated with `training=False` so Dropout/BatchNorm behave deterministically; torch models use `torch.no_grad()`. `permutation_importance()` provides column-shuffling variable ranking that works against either backend.
+- **Synthetic Data Generation**: `mixed_model(...)` produces clustered data with fixed + random effects for demos, teaching, and power analyses. `estimate_sd(mean, min, max)` recovers an SD from a known range.
 - **Biostats Utilities**: Ported functions from `fifer` for common statistical tasks.
+
+## Continuous Integration
+
+Three GitHub Actions workflows cover the test surface, kept independent so
+each runs in its own clean environment:
+
+* `.github/workflows/python-app.yml` -- core test matrix across Python
+  3.10, 3.11, 3.12, 3.13. No torch or keras required; tests that need
+  them skip cleanly via `pytest.importorskip`.
+* `.github/workflows/torch.yml` -- installs `torch` (CPU build) and runs
+  the torch-flex_nn tests. Triggered on every push to `main`, on PRs
+  touching `src/pyflexplot/flex_nn.py` or the torch tests, and on a
+  weekly schedule so we catch upstream torch regressions.
+* `.github/workflows/keras3.yml` -- installs `keras[jax]` and runs
+  `tests/test_flex_nn_keras.py` against a Keras 3 install. Same
+  trigger pattern as `torch.yml` plus a weekly schedule.
+
+All workflows upload coverage via `pytest-cov`.
 
 ## Changelog
 
@@ -72,10 +122,13 @@ p_viz.draw()
 - Added `pyflexplot.flex_nn` — torch-default wrappers for fitting and visualizing neural networks. `NeuralNetFit` bundles a fitted `torch.nn.Module` (or `keras.Model`) with the metadata needed to plug into `compare_fits`. `permutation_importance()` provides column-shuffling variable importance.
 - Added `pyflexplot.bluepill` — port of Dustin Fife's `bluepill` R package. `estimate_sd()` recovers an SD from a known mean and min/max range; `mixed_model()` generates clustered synthetic data with fixed + random effects, interactions, and polynomial terms.
 - Dropped the aspirational `flexifiers` bullet from the "Included R Packages" list (no corresponding R package was found).
-- Added 52 new tests across the two modules (60 → 112). Test suite uses `pytest.importorskip("torch")` so the package still imports cleanly without torch installed, but `flex_nn` tests skip when torch is absent.
+- Added 50 new tests across the two modules (60 → 110). Test suite uses `pytest.importorskip("torch")` so the package still imports cleanly without torch installed, but `flex_nn` tests skip when torch is absent.
 
 ### 0.2.1 (2026-08-28)
-- Hardened the Keras 3 path in `pyflexplot.flex_nn`: predictions now go through a dedicated `_keras_predict()` helper that passes `training=False` (so `Dropout`/`BatchNorm` behave deterministically) and falls back gracefully for custom `Model` subclasses whose `predict()` doesn't accept the `training` kwarg. Added 14 keras-specific tests in `tests/test_flex_nn_keras.py` (skip when keras isn't installed; verified against `keras==3.15.1` + `jax` backend). Extended the example notebook with a Keras 3 walk-through and added a README section describing the optional install + backend selection.
+- Hardened the Keras 3 path in `pyflexplot.flex_nn`: predictions now go through a dedicated `_keras_predict()` helper that passes `training=False` (so `Dropout`/`BatchNorm` behave deterministically) and falls back gracefully for custom `Model` subclasses whose `predict()` doesn't accept the `training` kwarg.
+- Added `tests/test_flex_nn_keras.py` with 14 keras-specific tests (skip when keras isn't installed; verified against `keras==3.15.1` + `jax` backend). Total test surface: 110 (core + torch) + 14 (keras when available) = 124.
+- CI: split into three workflows -- `python-app.yml` (core, no optional deps, Python 3.10-3.13), `torch.yml` (torch CPU install, weekly schedule to catch upstream regressions), `keras3.yml` (keras[jax] install, weekly schedule, PRs touching flex_nn).
+- Extended the example notebook with a Keras 3 walk-through and added a README section describing the optional install + backend selection.
 
 ### 0.1.1 (2026-06-20)
 - Hardened `parse_flexplot_formula()` validation (exactly one `~`, at most one `|`, trimmed tokens, intercept-only handling, empty outcome/predictor rejection).

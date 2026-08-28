@@ -1,14 +1,22 @@
-name: Core tests
+name: Torch backend tests
 
 on:
   push:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+    paths:
+      - "src/pyflexplot/flex_nn.py"
+      - "tests/test_flex_nn.py"
+      - "tests/test_flex_nn_integration.py"
+      - ".github/workflows/torch.yml"
+  schedule:
+    # Weekly run to catch upstream torch regressions.
+    - cron: "0 6 * * 1"
 
 jobs:
-  test:
-    name: pytest (${{ matrix.python-version }})
+  torch-tests:
+    name: pytest with torch (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -26,12 +34,10 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e .
-    - name: Install test deps
+    - name: Install torch (CPU)
       run: |
         pip install pytest pytest-cov
-    - name: Run pytest
-      # Tests that require torch or keras use pytest.importorskip and skip
-      # cleanly when those packages aren't installed, so this matrix stays
-      # fast and dependency-light.
+        pip install torch --index-url https://download.pytorch.org/whl/cpu
+    - name: Run flex_nn tests
       run: |
-        pytest --cov=src -q
+        pytest tests/test_flex_nn.py tests/test_flex_nn_integration.py -v
