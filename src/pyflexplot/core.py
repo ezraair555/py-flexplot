@@ -140,10 +140,19 @@ def _validate_data_for_plot(formula: str, data: pd.DataFrame, variables: dict):
             )
 
 
+_VALID_FLEXPLOT_METHODS = frozenset({"auto", "lm", "loess"})
+
+
 def flexplot(formula: str, data: pd.DataFrame, method: str = "auto", **kwargs):
     """
     Intelligent multivariate graphics via formulas.
     """
+    if method not in _VALID_FLEXPLOT_METHODS:
+        raise ValueError(
+            f"method must be one of {sorted(_VALID_FLEXPLOT_METHODS)}; got {method!r}. "
+            "Pass 'auto' for the default behaviour (LM for numeric-vs-numeric, "
+            "binomial GLM for numeric-vs-binary)."
+        )
     variables = parse_flexplot_formula(formula)
     _validate_data_for_plot(formula, data, variables)
 
@@ -159,6 +168,16 @@ def flexplot(formula: str, data: pd.DataFrame, method: str = "auto", **kwargs):
         p += labs(title=f"Distribution of {y}")
         p += theme_bw()
         return p
+
+    # Reject 3+ given variables: the formula parser accepts them but only
+    # two are actually used (facet_grid takes at most two).  Better to fail
+    # loudly than silently drop the third.
+    if len(given) > 2:
+        raise ValueError(
+            f"Formula {formula!r} has {len(given)} given variables after '|': "
+            f"{given}.  flexplot supports at most 2 given variables "
+            "(a row facet and a column facet)."
+        )
 
     # Determine variable types
     is_y_numeric = pd.api.types.is_numeric_dtype(data[y])
@@ -219,11 +238,90 @@ def _first_non_intercept_name(model, fallback="x"):
     return non_intercept[0] if non_intercept else None
 
 
+def _is_neural_net_fit(model) -> bool:
+    """Duck-type detection of a :class:`pyflexplot.flex_nn.NeuralNetFit`.
+
+    Avoids importing :mod:`flex_nn` at module load time so the core module
+    stays cheap to import when neural-net support isn't needed.  A
+    ``NeuralNetFit`` exposes ``.predict(data)`` returning an indexed
+    Series plus the response-var metadata the wrapper carries.
+    """
+    cls = type(model)
+    cls_name = f"{cls.__module__}.{cls.__qualname__}"
+    return cls_name == "pyflexplot.flex_nn.NeuralNetFit"
+
+
+def _visualize_neural_net(fit, data=None, **kwargs):
+    """Visualization path for ``NeuralNetFit`` wrappers.
+
+    Mirrors the statsmodels ``visualize()`` output (predicted-vs-actual
+    line on top of a scatter) so a user can drop a fitted network into
+    the same plot they would have used for an OLS fit.
+    """
+    if data is None:
+        raise ValueError(
+            "visualize() requires data= when called on a NeuralNetFit "
+            "(the wrapper does not carry the training data)."
+        )
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError(
+            f"data must be a pandas DataFrame, got {type(data).__name__}"
+        )
+    if data.empty:
+        raise ValueError("data must be non-empty for visualization.")
+
+    response_var = fit.response_var
+    if response_var not in data.columns:
+        raise ValueError(
+            f"Response column {response_var!r} (declared on the NeuralNetFit) "
+            f"not found in data. Available columns: {list(data.columns)}"
+        )
+
+    # Determine the x predictor.  Honour explicit x=, otherwise use the
+    # first declared predictor (mirrors the statsmodels fallback in
+    # visualize()).
+    x_name = kwargs.get("x")
+    if x_name is None:
+        if not fit.predictor_names:
+            raise ValueError(
+                "NeuralNetFit has no declared predictor_names; "
+                "pass an explicit x= argument."
+            )
+        x_name = fit.predictor_names[0]
+    if x_name not in data.columns:
+        raise ValueError(
+            f"Predictor column {x_name!r} not found in data for visualization."
+        )
+
+    pred = fit.predict(data)
+
+    plot_df = data.copy()
+    plot_df["__predicted"] = pred.reindex(plot_df.index)
+
+    p = (
+        ggplot(plot_df, aes(x=x_name, y=response_var))
+        + geom_point(alpha=0.4)
+        + geom_line(aes(y="__predicted"), color="red", size=1)
+        + labs(
+            title=f"Visualization: NeuralNetFit ({fit.backend})",
+            subtitle=f"Predicted {response_var} vs {x_name}",
+        )
+        + theme_bw()
+    )
+    return p
+
+
 def visualize(model, data: Optional[pd.DataFrame] = None, **kwargs):
     """
     Provides a visual representation of a fitted statistical object.
-    Supports statsmodels (OLS, GLM) and scikit-learn models.
+    Supports statsmodels (OLS, GLM), scikit-learn models, and
+    :class:`pyflexplot.flex_nn.NeuralNetFit` wrappers.
     """
+    # NeuralNetFit path: duck-typed dispatch so core.py doesn't have to
+    # import flex_nn at module load time.
+    if _is_neural_net_fit(model):
+        return _visualize_neural_net(model, data=data, **kwargs)
+
     if data is None:
         if hasattr(model, "model") and hasattr(model.model, "data"):
             data = pd.DataFrame(model.model.data.orig_endog).join(

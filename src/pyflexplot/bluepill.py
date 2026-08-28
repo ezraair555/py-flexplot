@@ -367,9 +367,15 @@ def _apply_spec(x: np.ndarray, spec: VarSpec) -> np.ndarray:
 
 
 def _interaction_polynomial_checks(spec: Dict[str, Sequence]) -> None:
+    """Validate the structure of an ``interactions`` dict.
+
+    Requires all three keys ``from``, ``to``, ``coef``.  Use
+    :func:`_polynomial_checks` for ``polynomials`` dicts which only need
+    ``from`` and ``coef``.
+    """
     if set(spec.keys()) != {"from", "to", "coef"}:
         raise ValueError(
-            f"interactions/polynomials dict must have exactly the keys "
+            f"interactions dict must have exactly the keys "
             f"'from', 'to', 'coef'; got {sorted(spec.keys())}"
         )
     n_from = len(spec["from"])
@@ -377,8 +383,39 @@ def _interaction_polynomial_checks(spec: Dict[str, Sequence]) -> None:
     n_coef = len(spec["coef"])
     if not (n_from == n_to == n_coef):
         raise ValueError(
-            f"interactions/polynomials arrays have inconsistent lengths: "
+            f"interactions arrays have inconsistent lengths: "
             f"from={n_from}, to={n_to}, coef={n_coef}"
+        )
+
+
+def _polynomial_checks(spec: Dict[str, Sequence]) -> None:
+    """Validate the structure of a ``polynomials`` dict.
+
+    Polynomials are a special case of interactions where ``to`` is always
+    the same index as ``from``, so the user only needs to supply
+    ``from`` and ``coef``.
+    """
+    if set(spec.keys()) - {"from", "coef"} != set():
+        # Either an unknown key, or `to` was supplied (which we don't use).
+        unexpected = set(spec.keys()) - {"from", "coef"}
+        if "to" in unexpected:
+            # `to` is allowed but ignored for backwards compatibility with
+            # the R package's shape; warn isn't worth it for a doc mismatch.
+            unexpected.remove("to")
+        if unexpected:
+            raise ValueError(
+                f"polynomials dict must have only the keys 'from' and 'coef'; "
+                f"got extra {sorted(unexpected)}"
+            )
+    if "from" not in spec or "coef" not in spec:
+        raise ValueError(
+            f"polynomials dict must have both 'from' and 'coef' keys; "
+            f"got {sorted(spec.keys())}"
+        )
+    if len(spec["from"]) != len(spec["coef"]):
+        raise ValueError(
+            f"polynomials arrays have inconsistent lengths: "
+            f"from={len(spec['from'])}, coef={len(spec['coef'])}"
         )
 
 
@@ -411,7 +448,7 @@ def _add_polynomials(
 ) -> Tuple[np.ndarray, np.ndarray]:
     if not polynomials:
         return predictor_matrix, coef_matrix
-    _interaction_polynomial_checks(polynomials)
+    _polynomial_checks(polynomials)
 
     # R's indices are 1-based over the predictor slots.  Our predictor_matrix
     # layout is [intercept, pred_0, pred_1, ...], so slot k lives at column k+1.

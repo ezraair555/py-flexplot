@@ -124,6 +124,14 @@ All workflows upload coverage via `pytest-cov`.
 - Dropped the aspirational `flexifiers` bullet from the "Included R Packages" list (no corresponding R package was found).
 - Added 50 new tests across the two modules (60 → 110). Test suite uses `pytest.importorskip("torch")` so the package still imports cleanly without torch installed, but `flex_nn` tests skip when torch is absent.
 
+### 0.3.0 (2026-08-28)
+- **`visualize()` now accepts `NeuralNetFit` wrappers** (DESIGN-7 from the v0.2.2 review). The duck-type dispatch avoids importing `flex_nn` at module load time, so the core module stays cheap when neural-net support isn't needed. The output mirrors the statsmodels `visualize()`: predicted-vs-actual line on top of a scatter. 7 new tests in `tests/test_design_followups.py::TestVisualizeNeuralNetFit`.
+- **`flexplot()` method validation** (DESIGN-4) — unknown `method` values now raise `ValueError` instead of silently producing no smooth. The `method` parameter is checked against a `{auto, lm, loess}` whitelist at entry.
+- **`flexplot()` given-variable validation** (DESIGN-3) — formulas with 3+ variables after `|` now raise `ValueError` instead of silently dropping `given[2:]`. Two-given is the maximum; `facet_grid` only supports row+column.
+- **`bluepill.mixed_model(polynomials=...)` no longer requires `to`** (DESIGN-6). Split the interaction/polynomial validator into two: interactions still require `from`/`to`/`coef`; polynomials only need `from`/`coef`. The R-compatible shape (`from`/`to`/`coef`) is still accepted on polynomials but `to` is ignored for backwards compatibility.
+- **Hypothesis property tests** — 14 new property-based tests in `tests/test_property_based.py` covering the formula parser (round-trip identity, deterministic parsing, malformed-input rejection across hundreds of generated formulas) and `mixed_model` rescaling invariants (output mean/SD match the declared spec within sampling tolerance; categorical columns only take declared levels). Each test runs 10-50 generated examples.
+- Total test surface: 132 → 164 (32 new). All tests pass; no API breakage.
+
 ### 0.2.2 (2026-08-28)
 - **Critical bug fix (bluepill)**: `mixed_model()` had an off-by-one column index that made the last predictor a constant column (its declared mean, zero variance) and shifted all other predictors by one column. The README's example produced `ses = 55.0` for every row. Fixed.
 - **Critical bug fix (flex_nn)**: `permutation_importance()` crashed with `UnboundLocalError` on five of the eleven declared metric names (`auc`, `precision`, `recall`, `f1`, `loss`) because the scorer dispatch branches were missing. Added rank-based AUC, thresholded binary precision/recall/F1, and `loss` (MSE) scorers; the unreachable `if direction is None:` fallback block is gone.
