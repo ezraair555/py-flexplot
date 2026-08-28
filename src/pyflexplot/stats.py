@@ -59,11 +59,18 @@ def model_comparison(model1, model2):
 
 def estimates(model):
     """
-    Reports effect sizes (e.g., Cohen's d, Eta-squared) for statistical models.
+    Extract a coefficient summary from a fitted model.
+
+    NOTE: This is a thin pass-through to ``model.summary()``.  The R
+    ``fifer`` package computes Cohen's d, eta-squared, and other effect
+    sizes that this Python port does not yet implement.  Calling
+    ``estimates()`` currently returns the model's statsmodels summary
+    object; it does NOT compute effect sizes.
+
+    Status: experimental, not yet a real effect-size reporter.  See the
+    py-flexplot roadmap for the planned implementation.
     """
-    summary = model.summary()
-    # Simple extraction of coefficients and p-values as a starting point
-    return summary
+    return model.summary()
 
 
 def p_format(p: float, digits: int = 3):

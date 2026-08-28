@@ -124,6 +124,13 @@ All workflows upload coverage via `pytest-cov`.
 - Dropped the aspirational `flexifiers` bullet from the "Included R Packages" list (no corresponding R package was found).
 - Added 50 new tests across the two modules (60 → 110). Test suite uses `pytest.importorskip("torch")` so the package still imports cleanly without torch installed, but `flex_nn` tests skip when torch is absent.
 
+### 0.2.2 (2026-08-28)
+- **Critical bug fix (bluepill)**: `mixed_model()` had an off-by-one column index that made the last predictor a constant column (its declared mean, zero variance) and shifted all other predictors by one column. The README's example produced `ses = 55.0` for every row. Fixed.
+- **Critical bug fix (flex_nn)**: `permutation_importance()` crashed with `UnboundLocalError` on five of the eleven declared metric names (`auc`, `precision`, `recall`, `f1`, `loss`) because the scorer dispatch branches were missing. Added rank-based AUC, thresholded binary precision/recall/F1, and `loss` (MSE) scorers; the unreachable `if direction is None:` fallback block is gone.
+- **Critical bug fix (bluepill)**: tuple-of-strings categorical specs (valid per the `VarSpec` type hint) were misidentified as continuous specs and crashed with `ValueError`. Extracted the numeric-detection logic into a shared `_is_continuous_spec()` helper so validation and execution agree.
+- Added 20 contract-level regression tests in `tests/test_bluepill_correctness.py` and `tests/test_flex_nn_correctness.py`. They check that predictors have non-zero variance, that the strongest coefficient ranks first in permutation importance, that all declared metrics work end-to-end, and that tuple specs round-trip. Each of these tests fails on the pre-v0.2.2 code path; all 20 pass now. Total: 132 tests passing.
+- Other cleanups from the v0.2.2 review: replaced `from plotnine import *` with explicit imports in `core.py` and `sem.py`, removed the unused `patsy` import, restored the model's original `training` flag in `_keras_predict()` (was permanently mutating caller state), and added an explicit "experimental / not yet implemented" note to `estimates()`.
+
 ### 0.2.1 (2026-08-28)
 - Hardened the Keras 3 path in `pyflexplot.flex_nn`: predictions now go through a dedicated `_keras_predict()` helper that passes `training=False` (so `Dropout`/`BatchNorm` behave deterministically) and falls back gracefully for custom `Model` subclasses whose `predict()` doesn't accept the `training` kwarg.
 - Added `tests/test_flex_nn_keras.py` with 14 keras-specific tests (skip when keras isn't installed; verified against `keras==3.15.1` + `jax` backend). Total test surface: 110 (core + torch) + 14 (keras when available) = 124.

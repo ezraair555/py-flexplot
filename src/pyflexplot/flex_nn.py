@@ -293,12 +293,13 @@ class NeuralNetFit:
         same way they did during validation.  Some custom ``Model`` subclasses
         don't accept ``training`` as a kwarg -- we retry without it in that
         case, after setting the model's ``training`` attribute to False if
-        available.
+        available, and restoring the original value on exit.
         """
         import keras as _keras
 
-        # If the model exposes a mutable training flag, force inference first
-        # so a custom call() implementation that ignores the kwarg still works.
+        # Save and restore the model's training flag if it's mutable so we
+        # don't permanently side-effect a caller-owned object.
+        prior_training = getattr(self.model, "training", None)
         if hasattr(self.model, "training"):
             try:
                 self.model.training = False
@@ -310,6 +311,12 @@ class NeuralNetFit:
         except TypeError:
             # Fall back for custom Models whose call() doesn't accept training=.
             return np.asarray(self.model.predict(X, verbose=0))
+        finally:
+            if prior_training is not None and hasattr(self.model, "training"):
+                try:
+                    self.model.training = prior_training
+                except Exception:
+                    pass
 
     # -- introspection -----------------------------------------------------
 
@@ -476,16 +483,67 @@ def permutation_importance(
                 return 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
         elif key == "accuracy":
             def scorer(yt, yp):
-                return float(np.mean((np.asarray(yt) > 0.5) == (np.asarray(yp) > 0.5)))
-        if direction is None:
-            # Best-effort default for named metrics not explicitly handled above.
-            def scorer(yt, yp):
-                # Best-effort default: classification accuracy for >0.5,
-                # MSE for everything else.
                 yt = np.asarray(yt); yp = np.asarray(yp)
-                if set(np.unique(yt)).issubset({0, 1}):
-                    return float(np.mean((yt > 0.5) == (yp > 0.5)))
-                return float(np.mean((yt - yp) ** 2))
+                yt_bin = (yt > 0.5).astype(int) if set(np.unique(yt)).issubset({0, 1}) else yt
+                yp_bin = (yp > 0.5).astype(int) if yp.size else yp
+                return float(np.mean(yt_bin == yp_bin))
+        elif key == "loss":
+            # Generic regression loss: MSE.  Lower is better.
+            def scorer(yt, yp):
+                return float(np.mean((np.asarray(yt) - np.asarray(yp)) ** 2))
+        elif key in ("precision", "recall", "f1"):
+            # Binary-classification metrics via 0.5 threshold.  For binary
+            # y; raises if y is not binary, prompting the user to pass a
+            # callable scorer instead.
+            def scorer(yt, yp):
+                yt = np.asarray(yt); yp = np.asarray(yp)
+                if not set(np.unique(yt)).issubset({0, 1}):
+                    raise ValueError(
+                        f"metric={key!r} requires a binary 0/1 outcome; "
+                        f"got unique values {sorted(np.unique(yt))[:5]}..."
+                    )
+                tp = float(np.sum((yt == 1) & (yp > 0.5)))
+                fp = float(np.sum((yt == 0) & (yp > 0.5)))
+                fn = float(np.sum((yt == 1) & (yp <= 0.5)))
+                if key == "precision":
+                    return tp / (tp + fp) if (tp + fp) > 0 else 0.0
+                if key == "recall":
+                    return tp / (tp + fn) if (tp + fn) > 0 else 0.0
+                # f1
+                p = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+                r = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+                return 2 * p * r / (p + r) if (p + r) > 0 else 0.0
+        elif key == "auc":
+            # Wilcoxon-Mann-Whitney U statistic normalised to [0, 1]; a
+            # rank-based AUC approximation that doesn't require sklearn.
+            # Best-effort for binary classification; raises if y is not
+            # binary.
+            def scorer(yt, yp):
+                yt = np.asarray(yt); yp = np.asarray(yp)
+                if not set(np.unique(yt)).issubset({0, 1}):
+                    raise ValueError(
+                        "metric='auc' requires a binary 0/1 outcome; "
+                        f"got unique values {sorted(np.unique(yt))[:5]}..."
+                    )
+                pos = yp[yt == 1]
+                neg = yp[yt == 0]
+                if pos.size == 0 or neg.size == 0:
+                    return 0.5  # undefined; return random-classifier value
+                # U statistic via pairwise comparison
+                n_pos, n_neg = len(pos), len(neg)
+                # rank all predictions together, then sum ranks of positives
+                order = np.argsort(yp)
+                ranks = np.empty_like(order, dtype=float)
+                ranks[order] = np.arange(1, len(yp) + 1)
+                pos_rank_sum = float(ranks[yt == 1].sum())
+                u = pos_rank_sum - n_pos * (n_pos + 1) / 2.0
+                return u / (n_pos * n_neg)
+        else:
+            # Should not be reachable: _DEFAULT_METRICS keys are exhaustive.
+            raise ValueError(
+                f"metric={key!r} is in _DEFAULT_METRICS but has no scorer "
+                "implementation. Pass a callable scorer instead."
+            )
     else:
         raise TypeError(
             f"metric must be None, str, or callable; got {type(metric).__name__}"

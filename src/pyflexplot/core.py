@@ -1,8 +1,21 @@
 import pandas as pd
 import numpy as np
-from plotnine import *
-import patsy
-from typing import Union, List, Optional
+from typing import List, Optional
+from plotnine import (
+    ggplot,
+    aes,
+    geom_histogram,
+    geom_point,
+    geom_smooth,
+    geom_jitter,
+    geom_line,
+    stat_summary,
+    facet_wrap,
+    facet_grid,
+    scale_color_identity,
+    labs,
+    theme_bw,
+)
 import statsmodels.api as sm
 from statsmodels.regression.linear_model import OLS
 

@@ -1,7 +1,21 @@
 import pandas as pd
 import numpy as np
-from plotnine import *
-from typing import Optional, List, Union
+from typing import List, Optional, Union
+from plotnine import (
+    aes,
+    element_text,
+    geom_hline,
+    geom_point,
+    geom_smooth,
+    geom_tile,
+    ggplot,
+    labs,
+    scale_fill_gradient,
+    scale_fill_gradient2,
+    theme,
+    theme_bw,
+    theme_minimal,
+)
 
 
 def hopper_plot(model, **kwargs):

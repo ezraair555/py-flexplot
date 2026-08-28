@@ -31,7 +31,7 @@ code does not deliver (e.g. multi-class handling) is implemented here.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -252,8 +252,17 @@ def mixed_model(
 
     for j, name in enumerate(predictor_names[1:], start=1):
         spec = vars[name]
-        # predictor_matrix column layout: [intercept, predictor_0, predictor_1, ...]
-        col = predictor_matrix[:, j + 1] if predictor_matrix.shape[1] > j + 1 else np.zeros(total_n)
+        # predictor_matrix column layout: column 0 = intercept (all 1s);
+        # columns 1..n_pred-1 = the random-draw predictor values for the
+        # slots 1..n_pred-1.  predictor_names[0] is the response (handled
+        # above from y_std), so predictor_names[k] for k >= 1 corresponds to
+        # predictor_matrix column k.
+        col_idx = j
+        col = (
+            predictor_matrix[:, col_idx]
+            if predictor_matrix.shape[1] > col_idx
+            else np.zeros(total_n)
+        )
         out[name] = _apply_spec(col, spec)
 
     return out
@@ -262,6 +271,19 @@ def mixed_model(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _is_continuous_spec(spec: Any) -> bool:
+    """Return True if *spec* is a continuous ``(mean, sd, digits)`` tuple.
+
+    A continuous spec is a 3-tuple of non-bool numbers.  Any list, or a
+    tuple of non-numeric elements, is treated as categorical levels.
+    """
+    return (
+        isinstance(spec, tuple)
+        and len(spec) == 3
+        and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in spec)
+    )
+
 
 def _check_errors(
     fixed: Sequence[float],
@@ -283,14 +305,7 @@ def _check_errors(
         )
     cluster_var = list(vars.keys())[-1]
     cluster_levels = vars[cluster_var]
-    # A continuous spec is a 3-tuple of numbers; any list, or a tuple of
-    # non-numeric elements, is treated as categorical levels.
-    is_continuous_spec = (
-        isinstance(cluster_levels, tuple)
-        and len(cluster_levels) == 3
-        and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in cluster_levels)
-    )
-    if is_continuous_spec:
+    if _is_continuous_spec(cluster_levels):
         raise ValueError(
             f"Final vars entry (cluster variable {cluster_var!r}) must be categorical "
             f"(list/tuple of levels), got {type(cluster_levels).__name__}"
@@ -335,9 +350,14 @@ def _rescale_continuous(x: np.ndarray, spec: Tuple[float, float, int]) -> np.nda
 
 
 def _apply_spec(x: np.ndarray, spec: VarSpec) -> np.ndarray:
-    """Apply a continuous or categorical spec to a 1-D array."""
-    if isinstance(spec, tuple):
-        return _rescale_continuous(x, spec)
+    """Apply a continuous or categorical spec to a 1-D array.
+
+    Mirrors the validation logic in :func:`_check_errors`: a 3-tuple of
+    numbers is the continuous ``(mean, sd, digits)`` spec; anything else
+    list-or-tuple is categorical levels.
+    """
+    if _is_continuous_spec(spec):
+        return _rescale_continuous(x, spec)  # type: ignore[arg-type]
     if not isinstance(spec, (list, tuple)):
         raise TypeError(
             f"var spec must be a (mean, sd, digits) tuple or a list of levels; "
