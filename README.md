@@ -10,8 +10,8 @@ A Python port of Dustin Fife's [`flexplot`](https://github.com/dustinfife/flexpl
 - **flexplot**: Intelligent multivariate graphics via formulas.
 - **fifer/fifer2**: Biostatistical toolbox for data cleanup and analysis.
 - **flexplavaan**: Visualizing latent variable models (SEM).
-- **flex_nn**: Neural network visualization (In progress).
-- **flexifiers**: Data transformation utilities (In progress).
+- **flex_nn**: Neural-network visualization wrappers (torch default; Keras 3 supported opportunistically). Use `NeuralNetFit` to wrap a fitted network and feed it into `compare_fits()` and friends.
+- **bluepill**: Synthetic mixed-model data generator. `mixed_model(...)` produces clustered data with fixed and random effects, interactions, and polynomial terms.
 
 ## Installation
 
@@ -56,9 +56,17 @@ p_viz.draw()
 - **Formula Syntax**: Uses `y ~ x + z | a` to automatically determine plot types.
 - **Model Visualization**: Directly `visualize(model)` to see predicted vs actuals.
 - **Model Comparison**: Use `compare_fits(formula, data, m1, m2)` to see performance side-by-side.
+- **Neural-Network Integration**: Wrap a fitted `torch.nn.Module` with `NeuralNetFit` to drop it into `compare_fits` next to a statsmodels fit.
+- **Synthetic Data Generation**: `mixed_model(...)` produces clustered data with fixed + random effects for demos, teaching, and power analyses.
 - **Biostats Utilities**: Ported functions from `fifer` for common statistical tasks.
 
 ## Changelog
+
+### 0.2.0 (2026-08-28)
+- Added `pyflexplot.flex_nn` — torch-default wrappers for fitting and visualizing neural networks. `NeuralNetFit` bundles a fitted `torch.nn.Module` (or `keras.Model`) with the metadata needed to plug into `compare_fits`. `permutation_importance()` provides column-shuffling variable importance. Keras 3 is supported opportunistically (no hard dependency).
+- Added `pyflexplot.bluepill` — port of Dustin Fife's `bluepill` R package. `estimate_sd()` recovers an SD from a known mean and min/max range; `mixed_model()` generates clustered synthetic data with fixed + random effects, interactions, and polynomial terms.
+- Dropped the aspirational `flexifiers` bullet from the "Included R Packages" list (no corresponding R package was found).
+- Added 52 new tests across the two modules (72 → 124). Test suite uses `pytest.importorskip("torch")` so the package still imports cleanly without torch installed, but `flex_nn` tests skip when torch is absent.
 
 ### 0.1.1 (2026-06-20)
 - Hardened `parse_flexplot_formula()` validation (exactly one `~`, at most one `|`, trimmed tokens, intercept-only handling, empty outcome/predictor rejection).

@@ -4,20 +4,31 @@ from .core import flexplot, visualize, compare_fits, added_plot
 from .stats import model_comparison, estimates, p_format, eliminated_columns, color_table
 from .ebbr import fit_beta_prior, add_ebb_estimate
 from .sem import hopper_plot, disturbance_plot, measurement_plot
+from .bluepill import estimate_sd, mixed_model
+from . import flex_nn
 
 __all__ = [
+    # flexplot (core visualization)
     "flexplot",
     "visualize",
     "compare_fits",
     "added_plot",
+    # fifer / fifer2 (biostatistics)
     "model_comparison",
     "estimates",
     "p_format",
     "eliminated_columns",
     "color_table",
+    # ebbr (empirical Bayes shrinkage)
     "fit_beta_prior",
     "add_ebb_estimate",
+    # flexplavaan (SEM visualization)
     "hopper_plot",
     "disturbance_plot",
-    "measurement_plot"
+    "measurement_plot",
+    # bluepill (simulated datasets)
+    "estimate_sd",
+    "mixed_model",
+    # flex_nn (neural-network integration)
+    "flex_nn",
 ]
