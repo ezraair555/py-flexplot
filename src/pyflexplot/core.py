@@ -97,7 +97,7 @@ def parse_flexplot_formula(formula: str):
     }
 
 
-def _validate_data_for_plot(formula: str, data: pd.DataFrame, variables: dict):
+def _validate_data_for_plot(formula: str, data: pd.DataFrame, variables: dict, require_numeric_x: bool = False):
     """Shared validation for flexplot and added_plot."""
     if not isinstance(data, pd.DataFrame):
         raise TypeError(
@@ -127,17 +127,31 @@ def _validate_data_for_plot(formula: str, data: pd.DataFrame, variables: dict):
             f"Formula {formula!r} references missing columns in data: {missing}"
         )
 
-    # Confirm numeric columns are numeric. We only enforce that outcome and x
-    # exist and are numeric when required; other columns are treated as given
-    # and may be any dtype.
-    for col in (y, x):
-        if col is None:
-            continue
-        if not pd.api.types.is_numeric_dtype(data[col]):
+    # Validate outcome column y is numeric (or numeric-convertible).
+    if y is not None and not pd.api.types.is_numeric_dtype(data[y]):
+        try:
+            pd.to_numeric(data[y].dropna())
+        except (ValueError, TypeError):
             raise ValueError(
-                f"Column {col!r} must be numeric for formula {formula!r}, "
-                f"got dtype {data[col].dtype}"
+                f"Column {y!r} must be numeric for formula {formula!r}, "
+                f"got dtype {data[y].dtype}"
             )
+
+    if require_numeric_x and x is not None and not pd.api.types.is_numeric_dtype(data[x]):
+        raise ValueError(
+            f"Column {x!r} must be numeric for formula {formula!r}, "
+            f"got dtype {data[x].dtype}"
+        )
+
+
+def _is_discrete(series: pd.Series) -> bool:
+    """
+    Returns True if the series is non-numeric (string, object, categorical, bool)
+    or is numeric with 10 or fewer unique non-null values.
+    """
+    if not pd.api.types.is_numeric_dtype(series):
+        return True
+    return series.dropna().nunique() <= 10
 
 
 _VALID_FLEXPLOT_METHODS = frozenset({"auto", "lm", "loess"})
@@ -181,31 +195,36 @@ def flexplot(formula: str, data: pd.DataFrame, method: str = "auto", **kwargs):
 
     # Determine variable types
     is_y_numeric = pd.api.types.is_numeric_dtype(data[y])
-    is_x_numeric = pd.api.types.is_numeric_dtype(data[x])
+    is_x_discrete = _is_discrete(data[x])
+
+    plot_df = data.copy()
+    # Convert numeric discrete X to string/categorical so plotnine treats x-axis as discrete levels
+    if is_x_discrete and pd.api.types.is_numeric_dtype(plot_df[x]):
+        plot_df[x] = plot_df[x].astype(str)
 
     # Build the base aesthetic with color/group when needed so all geoms pick it up.
     aes_kwargs = {"x": x, "y": y}
     if color:
         aes_kwargs["color"] = color
         aes_kwargs["group"] = color
-    p = ggplot(data, aes(**aes_kwargs))
+    p = ggplot(plot_df, aes(**aes_kwargs))
 
     # Determine plot type
-    if is_y_numeric and is_x_numeric:
+    if is_y_numeric and not is_x_discrete:
         p += geom_point(alpha=0.5)
         if method == "auto" or method == "lm":
-            p += geom_smooth(method="lm", color="blue")
+            p += geom_smooth(method="lm") if color else geom_smooth(method="lm", color="blue")
         elif method == "loess":
-            p += geom_smooth(method="loess", color="blue")
+            p += geom_smooth(method="loess") if color else geom_smooth(method="loess", color="blue")
 
-    elif is_y_numeric and not is_x_numeric:
+    elif is_y_numeric and is_x_discrete:
         p += geom_jitter(width=0.2, alpha=0.5)
         p += stat_summary(fun_data="mean_cl_boot", color="red", size=1)
 
-    elif not is_y_numeric and is_x_numeric:
+    elif not is_y_numeric and not is_x_discrete:
         # Validate binary 0/1 for binomial smoothing.
         try:
-            unique_y = pd.Series(data[y].dropna().astype(float)).unique()
+            unique_y = pd.Series(plot_df[y].dropna().astype(float)).unique()
         except (ValueError, TypeError):
             raise ValueError(
                 f"Binomial smoothing requires a numeric binary 0/1 outcome; {y!r} "
@@ -470,7 +489,7 @@ def added_plot(formula: str, data: pd.DataFrame, **kwargs):
     Generates an added variable plot (partial regression plot).
     """
     variables = parse_flexplot_formula(formula)
-    _validate_data_for_plot(formula, data, variables)
+    _validate_data_for_plot(formula, data, variables, require_numeric_x=True)
 
     y_var = variables["y"]
     x_var = variables["x"]

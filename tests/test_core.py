@@ -208,3 +208,27 @@ def test_added_plot_residual_alignment_with_missing():
     })
     with pytest.raises(ValueError, match="Residual lengths"):
         added_plot("y ~ x + z", data=df)
+
+
+def test_flexplot_categorical_x_and_color():
+    """Verify flexplot handles discrete X + color (e.g. survived_num ~ class + sex)."""
+    df = pd.DataFrame({
+        "survived_num": [0, 1, 1, 0, 1, 0, 1, 0],
+        "class": [1, 2, 3, 1, 2, 3, 1, 2],
+        "sex": ["female", "male", "female", "male", "female", "male", "female", "male"]
+    })
+    p = flexplot("survived_num ~ class + sex", data=df)
+    assert isinstance(p, ggplot)
+    layer_types = [layer.geom.__class__.__name__ for layer in p.layers]
+    assert "geom_jitter" in layer_types or "geom_point" in layer_types
+
+
+def test_flexplot_string_categorical_x():
+    """Verify string predictor column is accepted as x."""
+    df = pd.DataFrame({
+        "survived_num": [0, 1, 1, 0],
+        "class": ["1st", "2nd", "3rd", "1st"],
+        "sex": ["female", "male", "female", "male"]
+    })
+    p = flexplot("survived_num ~ class + sex", data=df)
+    assert isinstance(p, ggplot)
