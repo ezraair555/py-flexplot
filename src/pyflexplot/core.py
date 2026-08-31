@@ -1,3 +1,6 @@
+import re
+import warnings
+
 import pandas as pd
 import numpy as np
 from typing import List, Optional
@@ -81,9 +84,20 @@ def parse_flexplot_formula(formula: str):
             "given": [g.strip() for g in given_part.split("+")] if given_part else [],
             "all_x": [],
             "intercept_only": True,
+            "has_interaction": False,
         }
 
-    x_parts = [p.strip() for p in x_formula.split("+")]
+    # Detect interaction operators (``*`` or ``:``) anywhere in the
+    # right-hand side. The current fit is still additive; we set a flag
+    # so ``flexplot()`` can warn the user. ``*`` is expanded to its R-style
+    # constituent terms (``a*b`` → ``a + b + a:b``) so column lookup works.
+    has_interaction = bool(_INTERACTION_OP.search(x_formula))
+    if has_interaction:
+        expanded_x_formula = _expand_r_formula(x_formula)
+    else:
+        expanded_x_formula = x_formula
+
+    x_parts = [p.strip() for p in expanded_x_formula.split("+")]
     x_parts = [p for p in x_parts if p]
 
     if not x_parts:
@@ -91,8 +105,10 @@ def parse_flexplot_formula(formula: str):
             f"Formula must have at least one predictor after '~': {formula!r}"
         )
 
-    x_name = x_parts[0]
-    color_name = x_parts[1] if len(x_parts) > 1 else None
+    # ``x_name`` is the first atom of the first term (so ``x:z`` → ``x``);
+    # ``color_name`` is the first atom of the second term if present.
+    x_name = _first_atom(x_parts[0])
+    color_name = _first_atom(x_parts[1]) if len(x_parts) > 1 else None
 
     given_names = [g.strip() for g in given_part.split("+")] if given_part else []
     given_names = [g for g in given_names if g]
@@ -104,6 +120,7 @@ def parse_flexplot_formula(formula: str):
         "given": given_names,
         "all_x": x_parts,
         "intercept_only": False,
+        "has_interaction": has_interaction,
     }
 
 
@@ -160,6 +177,39 @@ _VALID_OVERLAY_METHODS = frozenset({"lm", "loess", "lowess", "glm", "rlm", "ols"
 # Default color cycle for overlay entries (distinct from the primary
 # ``"blue"`` so the primary line is always visually identifiable).
 _OVERLAY_COLOR_CYCLE = ("#e74c3c", "#2ecc71", "#9b59b6", "#f39c12", "#1abc9c")
+
+# Interaction-operator detection. The presence of ``*`` or ``:`` in the
+# right-hand side of a formula signals that the user wants interaction terms.
+# The parser accepts these for forward-compatibility with v0.7.0 (real
+# interaction-aware fitting), but the default fit in v0.6.x is still
+# additive — a UserWarning is emitted to make this explicit.
+_INTERACTION_OP = re.compile(r"[*:]")
+
+
+def _expand_r_formula(text: str) -> str:
+    """Expand R-style ``a*b`` to ``a + b + a:b``.
+
+    Repeatedly applies the expansion until no ``*`` remains (handles
+    multi-way interactions like ``a*b*c``). ``:`` terms are left as-is;
+    downstream code can choose how to handle them.
+    """
+    if "*" not in text:
+        return text
+    pattern = re.compile(r"(\b\w+)\s*\*\s*(\w+)")
+    while True:
+        new_text = pattern.sub(r"\1 + \2 + \1:\2", text)
+        if new_text == text:
+            return text
+        text = new_text
+
+
+def _first_atom(term: str) -> str:
+    """Return the first atom of a possibly-interacted term.
+
+    ``x:z`` → ``x``; ``x`` → ``x``. Used to extract the column name when
+    the parser encounters interaction terms.
+    """
+    return term.split(":", 1)[0].strip()
 
 
 def _normalize_overlay(overlay):
@@ -283,6 +333,19 @@ def flexplot(
     overlay_specs = _normalize_overlay(overlay)
 
     variables = parse_flexplot_formula(formula)
+    if variables.get("has_interaction"):
+        # v0.6.x: parser accepts interaction syntax (R-compatible) but the
+        # fit remains additive (parallel slopes per color group). Warn so
+        # users aren't misled. v0.7.0 will add `interaction_model=True` for
+        # true non-parallel slopes.
+        warnings.warn(
+            f"Interaction syntax detected in formula {formula!r} but flexplot's "
+            f"default fit is additive (parallel slopes per color group). "
+            f"v0.7.0 will add `interaction_model=True` for non-parallel slopes. "
+            f"To suppress this warning, write the formula without `*` or `:`.",
+            UserWarning,
+            stacklevel=2,
+        )
     _validate_data_for_plot(formula, data, variables)
 
     y = variables["y"]

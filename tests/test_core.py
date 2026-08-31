@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import pytest
 import statsmodels.formula.api as smf
+import warnings
 from plotnine import ggplot
 
 from pyflexplot import flexplot, added_plot, visualize, compare_fits
@@ -30,7 +31,15 @@ def test_basic_plot():
 
 def test_parse_flexplot_formula_happy():
     out = parse_flexplot_formula("y ~ x")
-    assert out == {"y": "y", "x": "x", "color": None, "given": [], "all_x": ["x"], "intercept_only": False}
+    assert out == {
+        "y": "y",
+        "x": "x",
+        "color": None,
+        "given": [],
+        "all_x": ["x"],
+        "intercept_only": False,
+        "has_interaction": False,
+    }
 
     out = parse_flexplot_formula("y ~ x + z | a + b")
     assert out["y"] == "y"
@@ -38,6 +47,7 @@ def test_parse_flexplot_formula_happy():
     assert out["color"] == "z"
     assert out["given"] == ["a", "b"]
     assert out["all_x"] == ["x", "z"]
+    assert out["has_interaction"] is False
 
 
 def test_parse_flexplot_formula_strips_tokens():
@@ -263,3 +273,85 @@ def test_added_plot_residual_alignment_with_missing():
     })
     with pytest.raises(ValueError, match="Residual lengths"):
         added_plot("y ~ x + z", data=df)
+
+
+# --- Interaction-syntax tests (v0.6.2) --------------------------------------
+
+
+def test_parse_flexplot_formula_accepts_star_syntax():
+    """`y ~ x*z` parses without error and expands to `x + z + x:z`."""
+    out = parse_flexplot_formula("y ~ x*z")
+    assert out["x"] == "x"
+    assert out["color"] == "z"
+    assert out["all_x"] == ["x", "z", "x:z"]
+    assert out["has_interaction"] is True
+
+
+def test_parse_flexplot_formula_accepts_colon_syntax():
+    """`y ~ x:z` parses; first atom of `x:z` is used for x_name."""
+    out = parse_flexplot_formula("y ~ x:z")
+    assert out["x"] == "x"
+    assert out["color"] is None
+    assert out["all_x"] == ["x:z"]
+    assert out["has_interaction"] is True
+
+
+def test_parse_flexplot_formula_mixed_interaction_and_main():
+    """`y ~ x*z + w` expands and is detected as interaction-bearing."""
+    out = parse_flexplot_formula("y ~ x*z + w")
+    assert out["x"] == "x"
+    assert out["color"] == "z"
+    assert out["all_x"] == ["x", "z", "x:z", "w"]
+    assert out["has_interaction"] is True
+
+
+def test_flexplot_with_star_syntax_emits_userwarning():
+    """`y ~ x*z` triggers a UserWarning about additive fit (v0.6.x)."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({
+        "y": rng.normal(size=40),
+        "x": rng.normal(size=40),
+        "z": rng.choice(["A", "B"], size=40),
+    })
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        p = flexplot("y ~ x*z", data=df)
+    user_warnings = [
+        w for w in caught if issubclass(w.category, UserWarning)
+    ]
+    assert len(user_warnings) >= 1
+    assert "additive" in str(user_warnings[0].message).lower()
+
+
+def test_flexplot_without_interaction_emits_no_userwarning():
+    """`y ~ x + z` (no `*` or `:`) emits no interaction UserWarning."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({
+        "y": rng.normal(size=40),
+        "x": rng.normal(size=40),
+        "z": rng.choice(["A", "B"], size=40),
+    })
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        p = flexplot("y ~ x + z", data=df)
+    interaction_warnings = [
+        w for w in caught
+        if issubclass(w.category, UserWarning)
+        and "interaction syntax" in str(w.message).lower()
+    ]
+    assert interaction_warnings == []
+
+
+def test_flexplot_with_interaction_does_not_error_on_columns():
+    """`y ~ x*z` must look up columns `x` and `z`, not `x:z`."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({
+        "y": rng.normal(size=40),
+        "x": rng.normal(size=40),
+        "z": rng.choice(["A", "B"], size=40),
+    })
+    # Should NOT raise "missing column x:z".
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        p = flexplot("y ~ x*z", data=df)
+    assert isinstance(p, ggplot)

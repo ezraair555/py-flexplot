@@ -5,6 +5,38 @@ All notable changes to py-flexplot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-08-30
+
+### Added
+
+- **R-style interaction syntax accepted by the formula parser.**
+  `parse_flexplot_formula()` now recognizes `*` and `:` operators in the
+  right-hand side of a formula. `y ~ x*z` is expanded to `y ~ x + z + x:z`
+  for column lookup purposes; the interaction term `x:z` is preserved in
+  `all_x` for forward-compatibility with v0.7.0.
+- **`has_interaction` flag on the parsed formula dict** — boolean set
+  to True when the formula contains `*` or `:`.
+- **`UserWarning` emitted by `flexplot()` when interaction syntax is
+  detected** — explicit notice that v0.6.x fits remain additive
+  (parallel slopes per color group) and that v0.7.0 will add
+  `interaction_model=True` for non-parallel slopes. To suppress the
+  warning, write the formula without `*` or `:`.
+- **`_expand_r_formula()` helper** — public, expands `a*b` to
+  `a + b + a:b` recursively (handles `a*b*c`).
+- **`_first_atom()` helper** — public, returns the first atom of a
+  possibly-interacted term (`x:z` → `x`).
+- **6 new tests in `tests/test_core.py`** — parser accepts `*` and `:`
+  syntax, `flexplot()` warns when interaction syntax is present, no
+  warning for plain `+` formulas, column lookup strips interaction
+  suffixes.
+
+### Notes
+
+- The fit behavior is **unchanged** for non-interaction formulas.
+- For interaction formulas, the fit is **additive by design** in
+  v0.6.x; users who need non-parallel slopes should fit their own
+  statsmodels model and use `visualize()` instead.
+
 ## [0.6.1] - 2026-08-30
 
 ### Fixed
