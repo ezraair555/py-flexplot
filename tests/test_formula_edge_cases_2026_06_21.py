@@ -109,6 +109,7 @@ class TestValidateDataForPlot:
                 "y ~ x",
                 df,
                 {"y": "y", "x": "x", "given": [], "color": None},
+                require_numeric_x=True,
             )
 
     def test_clean_data_passes(self):
