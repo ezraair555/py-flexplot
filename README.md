@@ -166,14 +166,6 @@ All workflows upload coverage via `pytest-cov`.
 `README.md` now includes a concise release log. The canonical full history
 remains in [`CHANGELOG.md`](CHANGELOG.md).
 
-### 0.8.1 (2026-08-31)
-- Added formula-function transformations in `flexplot()` (`log(x)`, `sqrt(x)`, `exp(x)`, `poly(x, 2)`, `I(...)`) with a safe whitelisted evaluator.
-- Added multivariate numeric slotting parity for `y ~ x1 + x2` / `y ~ x1 + x2 | g` by auto-binning slot-2+/given numeric variables into `<var>_binned`.
-- Added R-style defaults/parity behavior: categorical-vs-numeric alpha defaults, categorical jitter semantics, and low-cardinality numeric auto-categorization (`<5` unique).
-- Added explicit R-style `compare_fits()` compatibility args (`report_se`, `re`, `num_points`, `clusters`) with transparent no-op warning.
-- Added `third_eye()` placeholder endpoint (exported in package API) that raises `NotImplementedError` with guidance.
-- Added/updated parity tests; test suite status at release: `509 passed, 4 skipped`.
-
 ### 0.8.2 (2026-08-31)
 - Added mixed-effects support in `flexplot()`:
   - `method="mixedlm"` / `method="lmer"` for linear mixed models via `statsmodels.MixedLM`
@@ -181,6 +173,14 @@ remains in [`CHANGELOG.md`](CHANGELOG.md).
   - `random_effects=` supports a group column name or compact forms like `(1|group)` and `(1 + x|group)`.
 - Added mixed-model tests in `tests/test_mixed_models.py`.
 - Updated parity docs to reflect that mixed models are now available with explicit `lme4`-parity caveats.
+
+### 0.8.1 (2026-08-31)
+- Added formula-function transformations in `flexplot()` (`log(x)`, `sqrt(x)`, `exp(x)`, `poly(x, 2)`, `I(...)`) with a safe whitelisted evaluator.
+- Added multivariate numeric slotting parity for `y ~ x1 + x2` / `y ~ x1 + x2 | g` by auto-binning slot-2+/given numeric variables into `<var>_binned`.
+- Added R-style defaults/parity behavior: categorical-vs-numeric alpha defaults, categorical jitter semantics, and low-cardinality numeric auto-categorization (`<5` unique).
+- Added explicit R-style `compare_fits()` compatibility args (`report_se`, `re`, `num_points`, `clusters`) with transparent no-op warning.
+- Added `third_eye()` placeholder endpoint (exported in package API) that raises `NotImplementedError` with guidance.
+- Added/updated parity tests; test suite status at release: `509 passed, 4 skipped`.
 
 ### 0.8.0 (2026-08-31)
 - Implemented the major parity batch from the v0.8.0 review:
