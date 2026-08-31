@@ -45,8 +45,42 @@ def test_ghost_reference_none_no_extra_layer():
 def test_ghost_reference_non_dataframe_raises():
     """ghost_reference=42 raises TypeError."""
     df = _sample_df()
-    with pytest.raises(TypeError, match="must be a pandas DataFrame"):
+    with pytest.raises(TypeError, match="ghost_reference must be"):
         flexplot("y ~ x", data=df, ghost_reference=42)
+
+
+def test_ghost_reference_dict_requires_facet():
+    """ghost_reference dict without a facet raises TypeError."""
+    df = _sample_df()
+    with pytest.raises(TypeError, match="requires a .* facet"):
+        flexplot("y ~ x", data=df, ghost_reference={"g": "A"})
+
+
+def test_ghost_line_panel_repetition_semantics():
+    """R-parity: with a facet, ghost_line=X fits the line on the reference
+    panel and repeats it into every panel, drawn in that color (v0.8.0)."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({
+        "y": rng.normal(size=200),
+        "x": rng.normal(size=200),
+        "g": rng.choice(["A", "B"], size=200),
+    })
+    p = flexplot("y ~ x | g", data=df, ghost_line="red")
+    # The ghost line is an extra geom_line layer.
+    line_layers = [l for l in p.layers if l.geom.__class__.__name__ == "geom_line"]
+    assert len(line_layers) >= 1
+
+
+def test_ghost_line_dict_reference_selects_panel():
+    """ghost_reference={'g': 'B'} fits the ghost line on group B only."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({
+        "y": rng.normal(size=200),
+        "x": rng.normal(size=200),
+        "g": rng.choice(["A", "B"], size=200),
+    })
+    p = flexplot("y ~ x | g", data=df, ghost_line="black", ghost_reference={"g": "B"})
+    assert isinstance(p, ggplot)
 
 
 def test_ghost_reference_missing_x_column_raises():

@@ -27,17 +27,18 @@ exactly what's covered and what's not.
 | Auto-bin numeric x | `bins=N` | ✅ | `bins=N` | Routes through `pd.cut`; v0.6.4. |
 | Custom bin cuts | `breaks=[...]` | ✅ | `breaks=[...]` | Takes precedence over `bins` with `UserWarning`. |
 | Custom bin labels | `labels=[...]` | ✅ | `labels=[...]` | Validated against `bins` / `breaks` length. |
-| Dispersion marker | `spread=...` | ✅ | `spread={None,"ci","stdev","range","iqr","no"}` | Default `None` preserves bootstrap CI. |
+| Dispersion marker | `spread=...` | ✅ | `{None,"ci","stdev","range","iqr","no"}` + R aliases `"quartiles"`/`"sterr"` (v0.8.0+) | Default differs: R defaults to quartiles; ours None (bootstrap CI). |
+| Point jitter / alpha / raw-data toggle | `jitter`, `alpha`, `raw.data` | ✅ | `jitter=` / `alpha=` / `raw_data=` (v0.8.0+) | R's `se=F` ≈ our `uncertainty=None`; `suppress_smooth` likewise. |
 | Subsample large data | `sample=N` | ✅ | `sample=N` | Subsamples plot only; fits use full data. Deterministic via `np.random.default_rng(0)`. |
 | Overlay smoothers | `overlay=[...]` | ✅ | `overlay=[...]` | Per-overlay color / label / uncertainty / level. |
 | Uncertainty: CI | implicit | ✅ | `uncertainty="ci"` | plotnine default. |
 | Uncertainty: prediction | implicit | ✅ | `uncertainty="prediction"` | LM only. |
 | Uncertainty: bootstrap | implicit | ✅ | `uncertainty="bootstrap"` | loess branch only; n=200. |
 | Nested bands | `bands=[...]` | ✅ | `bands=[...]` | Multiple coverage levels. |
-| Ghost reference line | `ghost.line="red"\|"dashed"` | ✅ | `ghost_line="red"\|"dashed"` | y=0 reference; diagonal slope=1 is v0.7.0. |
-| Ghost reference data | `ghost.reference=df` | ✅ | `ghost_reference=df` | Auto-detects scatter vs prediction-line by column shape. |
+| Ghost line (panel-repeated, R-parity) | `ghost.line=<color>` | ✅ with facets | `ghost_line=<color>` + `ghost_reference={var: level}` (v0.8.0+) | Without facets, legacy Python-only y=0 / `"slope1"` references remain (`"slope1"` added v0.7.3). |
+| Ghost reference data | `ghost.reference=df` | ✅ | DataFrame (overlay) or dict (panel selector, v0.8.0+) | Auto-detects scatter vs prediction-line by column shape. |
 | Plot label override | `plot.string={...}` | ✅ | `plot_string={...}` | Accepts x, y, title, subtitle, caption, color. |
-| Force plot type | `plot.type="bar"` | ✅ | `plot_type="scatter"\|"line"\|"boxplot"\|"bar"` | Bypasses auto-dispatch. |
+| Force plot type | `plot.type="bar"` | ⚠️ | `plot_type="scatter"\|"line"\|"boxplot"\|"bar"` (v0.6.5+) | Bypasses auto-dispatch; R also has histogram/qq/density/violin (histogram exists via intercept-only dispatch). |
 | Return data | `return.data=TRUE` | ✅ | `return_data=True` | Returns `{"plot", "data"}`. |
 | Link related panels | `related=TRUE` | ⚠️ | `related=True` | No-op (plotnine already shares scales); accepted for R-parity. |
 | R-style interaction syntax | `y ~ x*z` | ✅ | `formula` parser + `interaction_model=True` (v0.7.0+) | Parsed since v0.6.2; **default** fit is additive (parallel slopes per color group, `UserWarning` emitted). `interaction_model=True` fits the actual interaction term and overlays non-parallel per-color-group lines. |
@@ -76,7 +77,8 @@ exactly what's covered and what's not.
 | AIC | ✅ | |
 | BIC | ✅ | |
 | Log-likelihood | ✅ | |
-| Likelihood-ratio test p-value | ✅ | Returns `(DataFrame, p_value)`. |
+| Likelihood-ratio test p-value | ✅ | Returns `(DataFrame, p_value)`; `p_value=None` for non-nested pairs (v0.8.0+, R parity). |
+| pred.difference (prediction-difference quantiles) | ✅ | `model_comparison(..., return_pred_difference=True)` (v0.8.0+). |
 | R² | ✅ | v0.6.3+. |
 | Adjusted R² | ✅ | v0.6.3+. |
 | Bayes factor (Kass & Raftery 1995) | ✅ | v0.6.3+, derived from BIC. |
@@ -96,7 +98,10 @@ The Python signature is `(DataFrame, p_value)` — a 2-tuple. R's
 | Coefficient table (estimate / SE / t / p / CI) | ✅ | v0.6.3+. |
 | Standardized betas | ✅ | v0.6.3+. |
 | Semi-partial R² | ✅ | Computed via reduced-model fits. |
-| Factor vs numeric split | ✅ | v0.6.3+. |
+| Factor-level estimates (per-level CIs) | ✅ | `estimates()["factor_estimates"]` (v0.8.0+). |
+| Mean differences (pairwise contrasts, Cohen's d) | ✅ | `estimates()["mean_differences"]` (v0.8.0+). |
+| mc= parameter | ✅ | `estimates(model, mc=False)` gates comparison outputs (v0.8.0+). |
+| Factor vs numeric split | ✅ | v0.6.3+; deduplicated v0.8.0+. |
 | Formula echo | ✅ | v0.6.3+. |
 | Per-term partial η²_p (type-III SS) | ✅ | `eta_squared(model, typ=3)` (v0.7.5+). |
 | Per-term CI on η²_p | ✅ | v0.7.5+ via the same non-central-F inversion. |

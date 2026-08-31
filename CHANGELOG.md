@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent highlights
 
+- **0.8.0** — Parity fixes from the man-page-level R-flexplot review (`docs/parity_review_2026-08-31.md`): non-nested `model_comparison` + `pred.difference`; `estimates()` factor-level tables + mean differences with Cohen's d + `mc=`; `added_plot()` R semantics (last variable, `x=`, `lm_formula=`, mean offset); R `spread` tokens (`quartiles`, `sterr`); `jitter=` / `alpha=` / `raw_data=`; panel-repetition semantics for `ghost_line` with facets; standalone `standardized_beta()` / `rsq_change()` / `bf_bic()`.
 - **0.7.5** — `eta_squared()` upgraded from a single model-row to per-term partial η²_p via `statsmodels.stats.anova.anova_lm(model, typ=...)` (type-I/II/III SS); new `scatter3D()` for 2D projection of `y ~ x + z` (points or tile mode).
 - **0.7.4** — New `pyflexplot.meansplot()` ports R's `fifer::meansplot()` for descriptive-statistics visualizations (mean + error bar per group, with `error="se"|"sd"|"ci"|"range"|"iqr"|"no"`).
 - **0.7.3** — `estimates()` returns a real R² confidence interval via non-central-F inversion (was `None` placeholder in v0.6.x); new `eta_squared()` for partial eta-squared; `ghost_line="slope1"` adds a diagonal slope=1 reference for prediction-vs-observed overlays.
@@ -22,6 +23,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **0.5.0** — New `overlay=` parameter on `flexplot()` for multi-smoother comparison.
 - **0.4.0** — First-class uncertainty layer on `flexplot()` (`uncertainty=`, `level=`, `bands=`); new `pyflexplot.uncertainty` module.
 - **0.3.0** — `visualize()` accepts `NeuralNetFit` wrappers; formula parser validation hardened.
+
+## [0.8.0] - 2026-08-31
+
+Implements the ranked fix list from `docs/parity_review_2026-08-31.md`
+(items #1-#6). Two deliberate behavior changes are flagged below.
+
+### Added (R-parity)
+
+- **`model_comparison()` non-nested support** — the LRT p-value is only
+  defined for nested models; non-nested pairs now return `p_value=None`
+  instead of raising `ValueError` (behavior change #1). AIC / BIC /
+  Bayes factor / R² are valid for any pair. Nesting is detected via
+  set containment on the models' `exog_names`.
+- **`pred.difference`** — new `return_pred_difference=True` third return
+  element: quantiles (0/25/50/75/100%) of the two models' in-sample
+  prediction differences, mirroring R's `model.comparison()`
+  `pred.difference` component. Default return stays a 2-tuple.
+- **`estimates()` gains `factor_estimates` and `mean_differences`**
+  (R's two missing output tables):
+  - `factor_estimates`: per-level fitted means with CIs (other
+    predictors held at reference values), one row per factor level.
+  - `mean_differences`: pairwise level contrasts with param-based CIs
+    and Cohen's d (pooled within-level SD of the raw outcome).
+  - New `mc=` parameter (R parity): `mc=False` skips the
+    comparison-dependent outputs (`semi.p.r2` empty, `mean_differences`
+    None). Factor-level estimates still compute.
+  - `factors` list is now deduplicated (previously repeated once per
+    dummy coefficient).
+- **`added_plot()` R-alignment** (behavior change #2):
+  - Default display variable is the **last** on the RHS (R's default).
+    v0.6.x plotted the first variable against doubly-residualized data.
+  - New `x=` (1-based position or name, R-style) and `lm_formula=`
+    (custom conditioning model).
+  - New `offset=True` (default): the mean of `y` is added back onto
+    residuals, keeping the outcome's scale on the y-axis (per R docs).
+  - Smoother routed through `_add_numeric_smooth` (so `method=`/
+    `uncertainty=`/`level=`/`bands=` work here); default `method="loess"`.
+  - Missing rows dropped before fitting (alignment by construction).
+- **`spread` R-token aliases**: `"quartiles"` (== `iqr`) and `"sterr"`
+  (== `ci`). Python default (None = bootstrap CI) is unchanged.
+- **`flexplot()` new params**: `jitter` (None/bool/length-2 vector),
+  `alpha` (point transparency), `raw_data` (hide the point layer;
+  summaries only). `method` now also accepts `"rlm"` and `"glm"` as
+  primary methods (R parity; previously overlay-only).
+- **`ghost_line` true R semantics with facets** (behavior note): when
+  the formula has `| given` facets, `ghost_line=<color>` fits the line
+  on a reference panel and repeats it into every panel (R's actual
+  feature; the earlier y=0/slope=1 references were a misread). The
+  reference panel is selected via a new dict form of `ghost_reference`
+  (`{given_var: level}`); absent, the first level of the first given
+  variable is used. Without facets the legacy `red`/`dashed`/`slope1`
+  references remain (Python-only extension; arbitrary colors now raise).
+- **Standalone accessors** (R names): `standardized_beta(model)`,
+  `rsq_change(reduced, full)`, `bf_bic(model1, model2)`.
+
+### Tests
+
+- 27 new tests in `tests/test_v080_parity.py` covering all six fixes,
+  plus updated spread-alias and ghost-reference tests in existing files.
+- Suite: 452 → 483 passed, 0 regressions.
+
+### Documentation
+
+- `docs/api/stats.md` updated for `model_comparison` / `estimates` /
+  new accessors; `docs/api/coverage.md` rows refreshed to match reality;
+  `docs/parity_review_2026-08-31.md` records the underlying review.
 
 ## [0.7.5] - 2026-08-31
 

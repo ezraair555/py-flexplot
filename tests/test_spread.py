@@ -25,8 +25,31 @@ from pyflexplot.core import _VALID_SPREAD, _make_spread_fn
 
 
 def test_valid_spread_values():
-    """_VALID_SPREAD contains the expected tokens."""
-    assert _VALID_SPREAD == frozenset({None, "stdev", "range", "iqr", "no", "ci"})
+    """_VALID_SPREAD contains the expected tokens (R aliases added v0.8.0)."""
+    assert _VALID_SPREAD == frozenset(
+        {None, "stdev", "range", "iqr", "no", "ci", "quartiles", "sterr"}
+    )
+
+
+def test_spread_r_aliases_map_correctly():
+    """R-flexplot tokens map: quartiles == iqr; sterr == ci."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({
+        "x": ["a", "b", "c"] * 20,
+        "y": rng.normal(size=60),
+    })
+    p_iqr = flexplot("y ~ x", data=df, spread="iqr")
+    p_quartiles = flexplot("y ~ x", data=df, spread="quartiles")
+    p_ci = flexplot("y ~ x", data=df, spread="ci")
+    p_sterr = flexplot("y ~ x", data=df, spread="sterr")
+    # quartiles produces the same layer schema as iqr (pointrange).
+    types_iqr = sorted(l.geom.__class__.__name__ for l in p_iqr.layers)
+    types_quartiles = sorted(l.geom.__class__.__name__ for l in p_quartiles.layers)
+    assert types_iqr == types_quartiles
+    # sterr produces the same layer schema as ci (stat_summary).
+    types_ci = sorted(l.geom.__class__.__name__ for l in p_ci.layers)
+    types_sterr = sorted(l.geom.__class__.__name__ for l in p_sterr.layers)
+    assert types_ci == types_sterr
 
 
 def test_flexplot_rejects_unknown_spread():

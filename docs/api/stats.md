@@ -12,6 +12,9 @@ Compare two statistical models (usually OLS or GLM) and report comparative fit s
 ```python
 from pyflexplot import model_comparison
 stats_df, p_value = model_comparison(model1, model2)
+
+# With pred.difference (v0.8.0+, R parity):
+stats_df, p_value, pred_diff = model_comparison(model1, model2, return_pred_difference=True)
 ```
 
 ### Returns
@@ -24,8 +27,12 @@ A 2-tuple `(stats_df, p_value)`:
     approximation: `BF = exp((BIC_worse - BIC_better) / 2)`. The better
     model (lower BIC) gets `BF >= 1`; the worse model gets `1/BF`. This
     mirrors R's `fifer::model.comparison()`.
-- **p_value**: Likelihood-ratio test p-value (chi-squared). `ValueError`
-  if the models are not nested (negative or zero df difference).
+- **p_value**: Likelihood-ratio test p-value (chi-squared) when the
+  models are nested; `None` for non-nested pairs (v0.8.0+, R parity —
+  AIC/BIC/BF remain valid without nesting). v0.7.x raised `ValueError`.
+- **pred_diff** (only with `return_pred_difference=True`): Series of
+  prediction-difference quantiles (0/25/50/75/100%), or None if the
+  models' predictions can't be aligned.
 
 ### Example
 
@@ -74,6 +81,8 @@ A `dict` with the following keys (v0.6.3+):
 | `r.squared.ci` | tuple or None | R² confidence interval (Olkin & Finn 1995 non-central-F inversion, v0.7.3+). Real interval, no longer a placeholder. |
 | `coef` | DataFrame | `estimate`, `std.error`, `t`, `p.value`, `ci.lower`, `ci.upper` per coefficient. |
 | `standardized` | Series | Standardized betas per predictor: `b_j * sd(x_j) / sd(y)`. |
+| `factor_estimates` | DataFrame | Per-factor-level fitted means with CIs (v0.8.0+; R's "Estimates for Factors"). |
+| `mean_differences` | DataFrame | Pairwise factor-level contrasts with CIs and `cohens.d` (v0.8.0+; gated on `mc=`). |
 | `semi.p.r2` | Series | Semi-partial R² per predictor, computed via reduced-model fits. |
 | `factors` | list of str | Categorical predictor names. |
 | `numbers` | list of str | Numeric predictor names. |
@@ -195,3 +204,34 @@ from pyflexplot import color_table
 styled_df = color_table(df, cmap="viridis")
 ```
 *(Requires Jupyter to display styling)*
+
+
+---
+
+## Standalone accessors (v0.8.0+)
+
+Thin, R-named accessors over quantities `estimates()` already computes:
+
+### `standardized_beta(model)`
+
+```python
+from pyflexplot import standardized_beta
+betas = standardized_beta(ols_model)   # Series indexed by predictor
+```
+
+Note: entries for categorical dummy columns use the dummy column's SD —
+treat those with care (R reports factor levels differently).
+
+### `rsq_change(reduced_model, full_model)`
+
+```python
+from pyflexplot import rsq_change
+delta = rsq_change(m_reduced, m_full)   # float
+```
+
+### `bf_bic(model1, model2)`
+
+```python
+from pyflexplot import bf_bic
+bf12 = bf_bic(m1, m2)   # exp((BIC2 - BIC1)/2); >1 favors m1
+```
