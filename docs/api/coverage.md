@@ -20,15 +20,20 @@ exactly what's covered and what's not.
 |---|---|---|---|---|
 | Formula syntax | `y ~ x + color \| given` | ✅ | `formula` | Same parser as R. |
 | Numeric vs numeric (LM/loess) | implicit | ✅ | `method="auto"\|"lm"\|"loess"` | |
-| Polynomial fit | `method="polynomial"` | ✅ | `method="polynomial"` | degree-3 OLS in x (matches R default). |
-| Cubic fit | `method="cubic"` | ✅ | `method="cubic"` | Alias for `"polynomial"`. |
+| Polynomial fit | `method="polynomial"` | ✅ | `method="polynomial"` | degree-2 OLS in x (R parity). |
+| Cubic fit | `method="cubic"` | ✅ | `method="cubic"` | degree-3 OLS in x. |
+| Quadratic fit alias | `method="quadratic"` | ✅ | `method="quadratic"` | Explicit degree-2 alias. |
+| Formula transformations | `log(x)`, `sqrt(x)`, `exp(x)`, `poly(x,2)`, `I(...)` | ✅ | `formula` | Implemented with a safe whitelisted evaluator (v0.8.1). |
 | Logistic fit | `method="logistic"` | ✅ | `method="logistic"` | GLM logit; explicit override routes through the parametric branch. |
+| Robust / count / gamma smoothers | `method="rlm"`, `"poisson"`, `"Gamma"` | ✅ | same | Implemented in parametric smoother branch. |
 | Binomial GLM on numeric binary y | implicit | ✅ | — | Auto-detected via binary pre-check (v0.6.1+). |
 | Auto-bin numeric x | `bins=N` | ✅ | `bins=N` | Routes through `pd.cut`; v0.6.4. |
 | Custom bin cuts | `breaks=[...]` | ✅ | `breaks=[...]` | Takes precedence over `bins` with `UserWarning`. |
 | Custom bin labels | `labels=[...]` | ✅ | `labels=[...]` | Validated against `bins` / `breaks` length. |
-| Dispersion marker | `spread=...` | ✅ | `{None,"ci","stdev","range","iqr","no"}` + R aliases `"quartiles"`/`"sterr"` (v0.8.0+) | Default differs: R defaults to quartiles; ours None (bootstrap CI). |
+| Dispersion marker | `spread=...` | ✅ | `{None,"ci","stdev","range","iqr","no"}` + R aliases `"quartiles"`/`"sterr"` (v0.8.0+) | `None` now maps to quartiles/IQR for discrete x (R parity). |
 | Point jitter / alpha / raw-data toggle | `jitter`, `alpha`, `raw.data` | ✅ | `jitter=` / `alpha=` / `raw_data=` (v0.8.0+) | R's `se=F` ≈ our `uncertainty=None`; `suppress_smooth` likewise. |
+| Multivariate numeric slotting | implicit | ✅ | `formula` + auto-binning | Slot-2+ / `given` numeric predictors are auto-binned to `<var>_binned` for color/facets (v0.8.1). |
+| Low-cardinality numeric auto-categorical | implicit | ✅ | internal | Numeric predictors with `<5` unique values are auto-treated as categorical (R parity). |
 | Subsample large data | `sample=N` | ✅ | `sample=N` | Subsamples plot only; fits use full data. Deterministic via `np.random.default_rng(0)`. |
 | Overlay smoothers | `overlay=[...]` | ✅ | `overlay=[...]` | Per-overlay color / label / uncertainty / level. |
 | Uncertainty: CI | implicit | ✅ | `uncertainty="ci"` | plotnine default. |
@@ -38,13 +43,13 @@ exactly what's covered and what's not.
 | Ghost line (panel-repeated, R-parity) | `ghost.line=<color>` | ✅ with facets | `ghost_line=<color>` + `ghost_reference={var: level}` (v0.8.0+) | Without facets, legacy Python-only y=0 / `"slope1"` references remain (`"slope1"` added v0.7.3). |
 | Ghost reference data | `ghost.reference=df` | ✅ | DataFrame (overlay) or dict (panel selector, v0.8.0+) | Auto-detects scatter vs prediction-line by column shape. |
 | Plot label override | `plot.string={...}` | ✅ | `plot_string={...}` | Accepts x, y, title, subtitle, caption, color. |
-| Force plot type | `plot.type="bar"` | ⚠️ | `plot_type="scatter"\|"line"\|"boxplot"\|"bar"` (v0.6.5+) | Bypasses auto-dispatch; R also has histogram/qq/density/violin (histogram exists via intercept-only dispatch). |
+| Force plot type | `plot.type=...` | ✅ | `plot_type="scatter"\|"line"\|"boxplot"\|"bar"\|"histogram"\|"qq"\|"density"\|"violin"` | Includes univariate histogram/qq/density/boxplot/violin (v0.8.x). |
 | Return data | `return.data=TRUE` | ✅ | `return_data=True` | Returns `{"plot", "data"}`. |
-| Link related panels | `related=TRUE` | ⚠️ | `related=True` | No-op (plotnine already shares scales); accepted for R-parity. |
+| Related-samples view | `related=TRUE` | ✅ | `related=True` | Implemented as paired-difference plot (2-level predictor, equal group sizes). |
 | R-style interaction syntax | `y ~ x*z` | ✅ | `formula` parser + `interaction_model=True` (v0.7.0+) | Parsed since v0.6.2; **default** fit is additive (parallel slopes per color group, `UserWarning` emitted). `interaction_model=True` fits the actual interaction term and overlays non-parallel per-color-group lines. |
 | Mixed-effects models (`glmer`) | `method="glmer"` | ❌ | — | `statsmodels.MixedLM` is not a drop-in for `lme4`. **Deferred.** |
 | Random forests | `method="rf"` | ✅ | `RFAdapter(estimator, ...)` | Use [`pyflexplot.ml.RFAdapter`](ml.md) to wrap a fitted sklearn estimator and pass it to `compare_fits()`. v0.6.7+. |
-| Diagonal slope=1 reference | implicit | ❌ | — | v0.7.0 todo. |
+| Diagonal slope=1 reference | implicit | ✅ | `ghost_line="slope1"` | Added in v0.7.3. |
 
 ---
 
@@ -67,6 +72,16 @@ exactly what's covered and what's not.
 | Return predictions | ✅ | `return_preds=True` (v0.6.3+). |
 | Predict on response or link scale | ✅ | `pred_type="response"\|"link"` (v0.6.3+). |
 | GLM support | ✅ | Predictions on the response scale (probability). |
+| R-style extra args accepted | ✅ (partial behavior) | `report_se`, `re`, `num_points`, `clusters` accepted (v0.8.1 parity stub). |
+
+---
+
+## `flexplot::third.eye()` — three-way interaction helper
+
+| Feature | Status | Notes |
+|---|---|---|
+| Public API endpoint exists | ✅ | `pyflexplot.third_eye()` exported (v0.8.1). |
+| Full `third.eye` behavior | ❌ | Placeholder currently raises `NotImplementedError`; use `flexplot(..., interaction_model=True)` as current alternative. |
 
 ---
 
