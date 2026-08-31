@@ -198,7 +198,7 @@ def diagnose(
 
     Examples
     --------
-    Verbose (prints to stdout, returns the dict):
+    Quiet mode (returns the dict without printing):
 
     >>> import pandas as pd
     >>> import numpy as np
@@ -208,13 +208,11 @@ def diagnose(
     ...     "y": rng.normal(size=200),
     ...     "x": rng.normal(size=200),
     ... })
-    >>> diag = diagnose("y ~ x", data=df)  # doctest: +SKIP
-
-    Quiet (returns the dict without printing):
-
     >>> diag = diagnose("y ~ x", data=df, verbose=False)
     >>> diag["linearity"]["reject_linearity"]
     False
+    >>> "missing" in diag and "outliers" in diag
+    True
 
     Notes
     -----

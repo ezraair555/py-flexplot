@@ -36,4 +36,8 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra --strict-markers"
+# Docstring doctests are run explicitly via:
+#   python3 -m pytest --doctest-modules src/pyflexplot/core.py src/pyflexplot/quality.py
+# (We don't add --doctest-modules to addopts because it would re-collect
+#  existing test files under different names and slow the suite.)
 

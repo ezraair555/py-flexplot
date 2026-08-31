@@ -331,19 +331,25 @@ def flexplot(
     >>> from pyflexplot import flexplot
     >>> rng = np.random.default_rng(0)
     >>> df = pd.DataFrame({"x": rng.normal(size=100), "y": rng.normal(size=100)})
-    >>> p = flexplot("y ~ x", data=df)  # doctest: +SKIP
-    >>> p.draw()  # doctest: +SKIP
+    >>> p = flexplot("y ~ x", data=df)
+    >>> isinstance(p, ggplot)
+    True
 
     With uncertainty bands:
 
-    >>> p = flexplot("y ~ x", data=df, bands=[0.5, 0.8, 0.95])  # doctest: +SKIP
+    >>> p = flexplot("y ~ x", data=df, bands=[0.5, 0.8, 0.95])
+    >>> any(isinstance(layer.geom, geom_smooth) for layer in p.layers)
+    True
 
     With overlay smoothers:
 
     >>> p = flexplot(
     ...     "y ~ x", data=df,
     ...     overlay=[{"method": "loess", "label": "LOESS smoother"}],
-    ... )  # doctest: +SKIP
+    ... )
+    >>> smooth_layers = [l for l in p.layers if isinstance(l.geom, geom_smooth)]
+    >>> len(smooth_layers) >= 2
+    True
     """
     if method not in _VALID_FLEXPLOT_METHODS:
         raise ValueError(
