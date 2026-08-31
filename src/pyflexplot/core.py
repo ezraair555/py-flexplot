@@ -13,6 +13,7 @@ from plotnine import (
     geom_jitter,
     geom_line,
     geom_ribbon,
+    geom_hline,
     stat_summary,
     facet_wrap,
     facet_grid,
@@ -792,16 +793,55 @@ def _visualize_neural_net(fit, data=None, **kwargs):
     return p
 
 
-def visualize(model, data: Optional[pd.DataFrame] = None, **kwargs):
+def visualize(
+    model,
+    data: Optional[pd.DataFrame] = None,
+    plot: str = "model",
+    **kwargs,
+):
     """
     Provides a visual representation of a fitted statistical object.
     Supports statsmodels (OLS, GLM), scikit-learn models, and
     :class:`pyflexplot.flex_nn.NeuralNetFit` wrappers.
+
+    Parameters
+    ----------
+    model : fitted model
+        Any model with a ``predict`` method. Statsmodels (OLS, GLM),
+        scikit-learn regressors, and ``NeuralNetFit`` are supported.
+    data : pd.DataFrame, optional
+        Predictor data. If omitted, inferred from ``model.model.data``.
+    plot : {"model", "residuals", "all"}, default "model"
+        What to draw:
+        - ``"model"``: predicted-vs-observed scatter with the fitted
+          line (the legacy behavior).
+        - ``"residuals"``: residual-vs-fitted scatter and a residual
+          histogram, side by side. Mirrors R's
+          ``visualize.lm(plot="residuals")``.
+        - ``"all"``: a combined ``cowplot``-style panel with the model
+          fit on the left and the residual plots on the right.
+          When ``cowplot`` isn't installed, the components are returned
+          as a dict of named layers.
+
+    Returns
+    -------
+    plotnine.ggplot OR dict
+        When ``plot="model"`` or ``plot="all"`` (with cowplot), a
+        single ggplot (or cowplot-joined object). When
+        ``plot="residuals"``, a dict with ``"rvf"`` (residual-vs-fitted)
+        and ``"hist"`` (residual histogram) ggplot objects.
     """
     # NeuralNetFit path: duck-typed dispatch so core.py doesn't have to
     # import flex_nn at module load time.
     if _is_neural_net_fit(model):
         return _visualize_neural_net(model, data=data, **kwargs)
+
+    plot = str(plot).lower()
+    valid_plots = ("model", "residuals", "all")
+    if plot not in valid_plots:
+        raise ValueError(
+            f"plot must be one of {valid_plots}; got {plot!r}."
+        )
 
     if data is None:
         if hasattr(model, "model") and hasattr(model.model, "data"):
@@ -833,6 +873,12 @@ def visualize(model, data: Optional[pd.DataFrame] = None, **kwargs):
 
     plot_df = data.copy()
     plot_df["__predicted"] = y_pred.reindex(plot_df.index)
+    if endog_names in plot_df.columns:
+        plot_df["__residual"] = plot_df[endog_names] - plot_df["__predicted"]
+    else:
+        plot_df["__residual"] = pd.Series(
+            getattr(model, "resid", pd.Series(dtype=float))
+        ).reindex(plot_df.index)
 
     # Determine the first predictor robustly.
     x_name = kwargs.get("x")
@@ -847,7 +893,8 @@ def visualize(model, data: Optional[pd.DataFrame] = None, **kwargs):
             f"Predictor column {x_name!r} not found in data for visualization."
         )
 
-    p = (
+    # The "model" panel — legacy predicted-vs-observed plot.
+    p_model = (
         ggplot(plot_df, aes(x=x_name, y=endog_names))
         + geom_point(alpha=0.4)
         + geom_line(aes(y="__predicted"), color="red", size=1)
@@ -857,7 +904,51 @@ def visualize(model, data: Optional[pd.DataFrame] = None, **kwargs):
         )
         + theme_bw()
     )
-    return p
+
+    if plot == "model":
+        return p_model
+
+    # Residual plots (used for plot="residuals" or plot="all").
+    plot_resid_df = plot_df.dropna(subset=["__residual", "__predicted"])
+    p_rvf = (
+        ggplot(plot_resid_df, aes(x="__predicted", y="__residual"))
+        + geom_point(alpha=0.4)
+        + geom_hline(yintercept=0, linetype="dashed", color="gray")
+        + labs(
+            title="Residuals vs Predicted",
+            x="Predicted",
+            y="Residual",
+        )
+        + theme_bw()
+    )
+    p_hist = (
+        ggplot(plot_resid_df, aes(x="__residual"))
+        + geom_histogram(bins=30, fill="steelblue", color="white")
+        + labs(
+            title="Residual Distribution",
+            x="Residual",
+            y="Count",
+        )
+        + theme_bw()
+    )
+
+    if plot == "residuals":
+        return {"rvf": p_rvf, "hist": p_hist}
+
+    # plot == "all" — try to compose with cowplot; otherwise return dict.
+    try:
+        import cowplot  # type: ignore
+        return cowplot.plot_grid(
+            p_model, p_rvf, p_hist,
+            ncol=2,
+            rel_widths=(0.6, 0.4),
+        )
+    except ImportError:
+        return {
+            "model": p_model,
+            "rvf": p_rvf,
+            "hist": p_hist,
+        }
 
 
 def compare_fits(

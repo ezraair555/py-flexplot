@@ -239,6 +239,43 @@ def test_visualize_no_predict_raises():
         visualize(Dummy(), data=df)
 
 
+def test_visualize_plot_residuals_returns_dict():
+    """plot='residuals' returns a dict with rvf and hist panels."""
+    df = pd.DataFrame({
+        "y": np.random.normal(size=50),
+        "x": np.random.normal(size=50),
+    })
+    model = smf.ols("y ~ x", data=df).fit()
+    out = visualize(model, data=df, plot="residuals")
+    assert isinstance(out, dict)
+    assert "rvf" in out and "hist" in out
+    assert isinstance(out["rvf"], ggplot)
+    assert isinstance(out["hist"], ggplot)
+
+
+def test_visualize_plot_all_returns_combined():
+    """plot='all' returns either a cowplot-joined object or a dict."""
+    df = pd.DataFrame({
+        "y": np.random.normal(size=50),
+        "x": np.random.normal(size=50),
+    })
+    model = smf.ols("y ~ x", data=df).fit()
+    out = visualize(model, data=df, plot="all")
+    # Either a cowplot object (has 'plots' attribute) or a dict fallback.
+    is_combined = hasattr(out, "plots") or isinstance(out, dict)
+    assert is_combined
+
+
+def test_visualize_plot_invalid_raises():
+    df = pd.DataFrame({
+        "y": np.random.normal(size=30),
+        "x": np.random.normal(size=30),
+    })
+    model = smf.ols("y ~ x", data=df).fit()
+    with pytest.raises(ValueError, match="plot must be one of"):
+        visualize(model, data=df, plot="bogus")
+
+
 def test_compare_fits_statsmodels():
     df = pd.DataFrame({
         "y": np.random.normal(size=50),
