@@ -1,0 +1,313 @@
+{
+  "communities": {
+    "0": [
+      "dataframe",
+      "pyflexplot_init",
+      "pyflexplot_init_rationale_1",
+      "pyflexplot_sem",
+      "pyflexplot_sem_disturbance_plot",
+      "pyflexplot_sem_hopper_plot",
+      "pyflexplot_sem_measurement_plot",
+      "pyflexplot_sem_rationale_138",
+      "pyflexplot_sem_rationale_77",
+      "pyflexplot_sem_rationale_8",
+      "pyflexplot_stats",
+      "pyflexplot_stats_check_statsmodels_attrs",
+      "pyflexplot_stats_color_table",
+      "pyflexplot_stats_eliminated_columns",
+      "pyflexplot_stats_estimates",
+      "pyflexplot_stats_model_comparison",
+      "pyflexplot_stats_p_format",
+      "pyflexplot_stats_rationale_18",
+      "pyflexplot_stats_rationale_61",
+      "pyflexplot_stats_rationale_70",
+      "pyflexplot_stats_rationale_79",
+      "pyflexplot_stats_rationale_88",
+      "pyflexplot_stats_rationale_9",
+      "tests_test_sem",
+      "tests_test_sem_test_disturbance_plot_real_semopy",
+      "tests_test_sem_test_hopper_plot_real_semopy",
+      "tests_test_sem_test_measurement_plot_real_semopy",
+      "tests_test_sem_test_sem_scaffolding",
+      "tests_test_stats",
+      "tests_test_stats_test_eliminated_columns",
+      "tests_test_stats_test_model_comparison_basic",
+      "tests_test_stats_test_model_comparison_missing_attributes",
+      "tests_test_stats_test_model_comparison_wrong_order_still_valid",
+      "tests_test_stats_test_p_format"
+    ],
+    "1": [
+      "pyflexplot_core_added_plot",
+      "pyflexplot_core_flexplot",
+      "pyflexplot_core_rationale_131",
+      "pyflexplot_core_rationale_358",
+      "tests_test_core",
+      "tests_test_core_test_added_plot_residual_alignment",
+      "tests_test_core_test_added_plot_residual_alignment_with_missing",
+      "tests_test_core_test_basic_plot",
+      "tests_test_core_test_flexplot_categorical_y_path",
+      "tests_test_core_test_flexplot_categorical_y_rejects_non_numeric_string",
+      "tests_test_core_test_flexplot_color_aesthetic_applied",
+      "tests_test_core_test_flexplot_empty_data",
+      "tests_test_core_test_flexplot_intercept_only",
+      "tests_test_core_test_flexplot_missing_column",
+      "tests_test_core_test_flexplot_non_numeric_columns",
+      "tests_test_core_test_parse_flexplot_formula_accepts_single_pipe",
+      "tests_test_core_test_parse_flexplot_formula_empty_outcome",
+      "tests_test_core_test_parse_flexplot_formula_empty_predictor",
+      "tests_test_core_test_parse_flexplot_formula_happy",
+      "tests_test_core_test_parse_flexplot_formula_intercept_only",
+      "tests_test_core_test_parse_flexplot_formula_rejects_missing_tilde",
+      "tests_test_core_test_parse_flexplot_formula_rejects_multiple_pipe",
+      "tests_test_core_test_parse_flexplot_formula_rejects_multiple_tilde",
+      "tests_test_core_test_parse_flexplot_formula_strips_tokens"
+    ],
+    "2": [
+      "pyflexplot_ebbr",
+      "pyflexplot_ebbr_add_ebb_estimate",
+      "pyflexplot_ebbr_beta_binomial_loglik",
+      "pyflexplot_ebbr_betaprior",
+      "pyflexplot_ebbr_betaprior_mean",
+      "pyflexplot_ebbr_fit_beta_prior",
+      "pyflexplot_ebbr_rationale_1",
+      "pyflexplot_ebbr_rationale_115",
+      "pyflexplot_ebbr_rationale_40",
+      "tests_test_ebbr",
+      "tests_test_ebbr_test_add_ebb_estimate_basic",
+      "tests_test_ebbr_test_add_ebb_estimate_non_default_index",
+      "tests_test_ebbr_test_fit_beta_prior_basic",
+      "tests_test_ebbr_test_fit_beta_prior_moments",
+      "tests_test_ebbr_test_fit_beta_prior_rejects_negative_successes",
+      "tests_test_ebbr_test_fit_beta_prior_rejects_successes_gt_totals",
+      "tests_test_ebbr_test_fit_beta_prior_rejects_zero_totals",
+      "tests_test_ebbr_test_fit_beta_prior_zero_variance"
+    ],
+    "3": [
+      "pyflexplot_core_parse_flexplot_formula",
+      "pyflexplot_core_rationale_11",
+      "tests_test_formula_edge_cases_2026_06_21_rationale_17",
+      "tests_test_formula_edge_cases_2026_06_21_rationale_36",
+      "tests_test_formula_edge_cases_2026_06_21_rationale_68",
+      "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases",
+      "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases_test_double_tilde_raises",
+      "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases_test_empty_string_raises",
+      "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases_test_intercept_only_formula_accepted",
+      "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases_test_missing_tilde_raises",
+      "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases_test_multiple_givens",
+      "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases_test_multiple_pipes_raises",
+      "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases_test_non_string_formula_raises_type_error",
+      "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases_test_none_formula_raises_type_error",
+      "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases_test_returns_dict",
+      "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases_test_single_predictor_with_givens",
+      "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases_test_strips_whitespace_from_tokens"
+    ],
+    "4": [
+      "pyflexplot_core",
+      "pyflexplot_core_compare_fits",
+      "pyflexplot_core_first_non_intercept_name",
+      "pyflexplot_core_get_model_predictions",
+      "pyflexplot_core_rationale_203",
+      "pyflexplot_core_rationale_210",
+      "pyflexplot_core_rationale_279",
+      "pyflexplot_core_rationale_320",
+      "pyflexplot_core_visualize",
+      "series",
+      "tests_test_core_test_compare_fits_missing_predict",
+      "tests_test_core_test_compare_fits_statsmodels",
+      "tests_test_core_test_visualize_intercept_only_raises",
+      "tests_test_core_test_visualize_no_data_raises",
+      "tests_test_core_test_visualize_no_predict_raises",
+      "tests_test_core_test_visualize_statsmodels"
+    ],
+    "5": [
+      "pyflexplot_core_rationale_88",
+      "pyflexplot_core_validate_data_for_plot",
+      "tests_test_formula_edge_cases_2026_06_21",
+      "tests_test_formula_edge_cases_2026_06_21_rationale_1",
+      "tests_test_formula_edge_cases_2026_06_21_rationale_127",
+      "tests_test_formula_edge_cases_2026_06_21_rationale_77",
+      "tests_test_formula_edge_cases_2026_06_21_testparsevalidatepipeline",
+      "tests_test_formula_edge_cases_2026_06_21_testparsevalidatepipeline_test_parse_then_validate_clean",
+      "tests_test_formula_edge_cases_2026_06_21_testparsevalidatepipeline_test_parse_then_validate_missing_column",
+      "tests_test_formula_edge_cases_2026_06_21_testvalidatedataforplot",
+      "tests_test_formula_edge_cases_2026_06_21_testvalidatedataforplot_test_clean_data_passes",
+      "tests_test_formula_edge_cases_2026_06_21_testvalidatedataforplot_test_empty_dataframe_raises",
+      "tests_test_formula_edge_cases_2026_06_21_testvalidatedataforplot_test_missing_predictor_column_raises",
+      "tests_test_formula_edge_cases_2026_06_21_testvalidatedataforplot_test_non_dataframe_raises_type_error",
+      "tests_test_formula_edge_cases_2026_06_21_testvalidatedataforplot_test_non_numeric_predictor_raises"
+    ],
+    "6": [
+      "add_ebb_estimate_md_docs_add_ebb_estimate",
+      "core_md_api_core",
+      "ebbr_md_api_ebbr",
+      "fit_beta_prior_md_docs_fit_beta_prior",
+      "flexplot_md_docs_flexplot",
+      "hopper_plot_md_docs_hopper_plot",
+      "index_md_docs",
+      "index_md_docs_reference",
+      "model_comparison_md_docs_model_comparison",
+      "python_app_yml_workflow",
+      "readme_md_pyflexplot",
+      "sem_md_api_sem",
+      "stats_md_api_stats",
+      "visualize_md_docs_visualize"
+    ],
+    "7": [
+      "plot1_class_png_titanic_image",
+      "plot2_sex_png_titanic_image",
+      "plot3_age_png_titanic_image",
+      "titanic_md_examples_titanic"
+    ],
+    "8": [
+      "agents_md_agents"
+    ],
+    "9": [
+      "heartbeat_md_heartbeat"
+    ],
+    "10": [
+      "identity_md_identity"
+    ],
+    "11": [
+      "pkg_py_flexplot"
+    ],
+    "12": [
+      "soul_md_soul"
+    ],
+    "13": [
+      "tools_md_tools"
+    ],
+    "14": [
+      "user_md_user"
+    ]
+  },
+  "cohesion": {
+    "0": 0.09982174688057041,
+    "1": 0.11956521739130435,
+    "2": 0.17647058823529413,
+    "3": 0.19117647058823528,
+    "4": 0.15,
+    "5": 0.19047619047619047,
+    "6": 0.24175824175824176,
+    "7": 0.5,
+    "8": 1.0,
+    "9": 1.0,
+    "10": 1.0,
+    "11": 1.0,
+    "12": 1.0,
+    "13": 1.0,
+    "14": 1.0
+  },
+  "gods": [
+    {
+      "id": "pyflexplot_core_parse_flexplot_formula",
+      "label": "parse_flexplot_formula()",
+      "degree": 27
+    },
+    {
+      "id": "pyflexplot_core_flexplot",
+      "label": "flexplot()",
+      "degree": 16
+    },
+    {
+      "id": "pyflexplot_core_validate_data_for_plot",
+      "label": "_validate_data_for_plot()",
+      "degree": 13
+    },
+    {
+      "id": "tests_test_formula_edge_cases_2026_06_21_testformulaedgecases",
+      "label": "TestFormulaEdgeCases",
+      "degree": 13
+    },
+    {
+      "id": "pyflexplot_ebbr_fit_beta_prior",
+      "label": "fit_beta_prior()",
+      "degree": 12
+    },
+    {
+      "id": "pyflexplot_core_visualize",
+      "label": "visualize()",
+      "degree": 10
+    },
+    {
+      "id": "pyflexplot_core_added_plot",
+      "label": "added_plot()",
+      "degree": 10
+    },
+    {
+      "id": "pyflexplot_core_compare_fits",
+      "label": "compare_fits()",
+      "degree": 9
+    },
+    {
+      "id": "pyflexplot_stats_model_comparison",
+      "label": "model_comparison()",
+      "degree": 8
+    },
+    {
+      "id": "tests_test_formula_edge_cases_2026_06_21_testvalidatedataforplot",
+      "label": "TestValidateDataForPlot",
+      "degree": 7
+    }
+  ],
+  "surprises": [
+    {
+      "source": "test_parse_flexplot_formula_accepts_single_pipe()",
+      "target": "parse_flexplot_formula()",
+      "source_files": [
+        "tests/test_core.py",
+        "src/pyflexplot/core.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `test_parse_flexplot_formula_accepts_single_pipe()` unexpectedly reaches hub `parse_flexplot_formula()`"
+    },
+    {
+      "source": "test_parse_flexplot_formula_empty_outcome()",
+      "target": "parse_flexplot_formula()",
+      "source_files": [
+        "tests/test_core.py",
+        "src/pyflexplot/core.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `test_parse_flexplot_formula_empty_outcome()` unexpectedly reaches hub `parse_flexplot_formula()`"
+    },
+    {
+      "source": "test_parse_flexplot_formula_empty_predictor()",
+      "target": "parse_flexplot_formula()",
+      "source_files": [
+        "tests/test_core.py",
+        "src/pyflexplot/core.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `test_parse_flexplot_formula_empty_predictor()` unexpectedly reaches hub `parse_flexplot_formula()`"
+    },
+    {
+      "source": "test_parse_flexplot_formula_happy()",
+      "target": "parse_flexplot_formula()",
+      "source_files": [
+        "tests/test_core.py",
+        "src/pyflexplot/core.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `test_parse_flexplot_formula_happy()` unexpectedly reaches hub `parse_flexplot_formula()`"
+    },
+    {
+      "source": "test_parse_flexplot_formula_intercept_only()",
+      "target": "parse_flexplot_formula()",
+      "source_files": [
+        "tests/test_core.py",
+        "src/pyflexplot/core.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `test_parse_flexplot_formula_intercept_only()` unexpectedly reaches hub `parse_flexplot_formula()`"
+    }
+  ],
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
+}

@@ -148,14 +148,17 @@ def test_make_spread_fn_iqr_shape():
 # ---------------------------------------------------------------------------
 
 
-def test_default_spread_is_none_and_uses_bootstrap_ci():
-    """No spread= specified: legacy bootstrap CI behavior."""
+def test_default_spread_is_none_and_uses_quartiles():
+    """No spread= specified: R-default quartiles (median +/- IQR)."""
     rng = np.random.default_rng(0)
     df = pd.DataFrame({
         "x": ["a", "b", "c"] * 20,
         "y": rng.normal(size=60),
     })
     p_default = flexplot("y ~ x", data=df)
-    p_ci = flexplot("y ~ x", data=df, spread="ci")
+    p_quartiles = flexplot("y ~ x", data=df, spread="quartiles")
     # Same number of layers (both should produce jitter + summary).
-    assert len(p_default.layers) == len(p_ci.layers)
+    assert len(p_default.layers) == len(p_quartiles.layers)
+    # Explicit CI remains available.
+    p_ci = flexplot("y ~ x", data=df, spread="ci")
+    assert len(p_ci.layers) == len(p_default.layers)

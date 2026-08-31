@@ -1,3 +1,4 @@
+import ast
 import re
 import warnings
 
@@ -15,14 +16,22 @@ from plotnine import (
     geom_ribbon,
     geom_hline,
     geom_boxplot,
+    geom_violin,
     geom_bar,
+    geom_density,
     stat_summary,
+    stat_qq,
+    stat_qq_line,
     facet_wrap,
     facet_grid,
     scale_color_identity,
     scale_color_manual,
     labs,
     theme_bw,
+    theme,
+    coord_flip,
+    element_blank,
+    element_text,
 )
 import statsmodels.api as sm
 from statsmodels.regression.linear_model import OLS
@@ -127,7 +136,13 @@ def parse_flexplot_formula(formula: str):
     }
 
 
-def _validate_data_for_plot(formula: str, data: pd.DataFrame, variables: dict, require_numeric_x: bool = False):
+def _validate_data_for_plot(
+    formula: str,
+    data: pd.DataFrame,
+    variables: dict,
+    require_numeric_x: bool = False,
+    intercept_only: bool = False,
+):
     """Shared validation for flexplot and added_plot."""
     if not isinstance(data, pd.DataFrame):
         raise TypeError(
@@ -158,7 +173,13 @@ def _validate_data_for_plot(formula: str, data: pd.DataFrame, variables: dict, r
         )
 
     # Validate outcome column y is numeric (or numeric-convertible).
-    if y is not None and not pd.api.types.is_numeric_dtype(data[y]):
+    # For intercept-only formulas, R-flexplot supports univariate plots of
+    # categorical outcomes (bar charts), so we relax the numeric requirement.
+    if (
+        y is not None
+        and not intercept_only
+        and not pd.api.types.is_numeric_dtype(data[y])
+    ):
         try:
             pd.to_numeric(data[y].dropna())
         except (ValueError, TypeError):
@@ -174,14 +195,65 @@ def _validate_data_for_plot(formula: str, data: pd.DataFrame, variables: dict, r
         )
 
 
+# Threshold below which R-flexplot converts numeric predictors to ordered
+# categorical factors. Matches R's ``convert_if_less_than_five`` (numeric
+# with <5 unique values -> ordered factor).
+_LOW_CARDINALITY_THRESHOLD = 5
+
+
+def _is_low_cardinality_numeric(series: pd.Series) -> bool:
+    """Return True if ``series`` is numeric with fewer than 5 unique non-null values.
+
+    Mirrors R-flexplot's ``convert_if_less_than_five``: numeric axis / color /
+    given variables with 2-4 unique values should be treated as ordered
+    categorical factors, both for plotting and for the smoother fit.  Series
+    that are already non-numeric, or numeric with 5+ unique values, return
+    False (no conversion needed).
+    """
+    if not pd.api.types.is_numeric_dtype(series):
+        return False
+    n_unique = series.dropna().nunique()
+    return 0 < n_unique < _LOW_CARDINALITY_THRESHOLD
+
+
 def _is_discrete(series: pd.Series) -> bool:
     """
     Returns True if the series is non-numeric (string, object, categorical, bool)
     or is numeric with 10 or fewer unique non-null values.
+
+    For R-parity low-cardinality conversion (numeric with <5 unique values
+    becomes ordered categorical), see ``_is_low_cardinality_numeric`` /
+    ``_convert_low_cardinality_to_categorical``.
     """
     if not pd.api.types.is_numeric_dtype(series):
         return True
     return series.dropna().nunique() <= 10
+
+
+def _convert_low_cardinality_to_categorical(
+    data: pd.DataFrame,
+    variables: list,
+):
+    """Convert numeric predictors with <5 unique values to string (categorical).
+
+    R-flexplot's ``convert_if_less_than_five`` turns these into ordered
+    factors so the discrete-x branch (geom_jitter + dispersion marker)
+    applies instead of the numeric-x smoother.  In Python we convert to
+    ``str`` so plotnine treats the column as discrete; the actual fitted
+    model still uses the (now string) values via statsmodels' C() wrapper
+    when needed.
+
+    Returns a new DataFrame (the input is not mutated).  Variables that
+    are missing from ``data`` are silently skipped (callers should have
+    validated columns earlier).
+    """
+    out = data.copy()
+    for var in variables:
+        if var is None or var not in out.columns:
+            continue
+        if _is_low_cardinality_numeric(out[var]):
+            out[var] = out[var].astype(str)
+    return out
 
 
 def _validate_binning_params(
@@ -305,11 +377,13 @@ def _add_discrete_summary(p, spread: Optional[str]):
     """Add the dispersion marker layer for the discrete-x branch.
 
     Mirrors R-flexplot's ``spread`` argument:
-    - None / "ci": bootstrap CI on the mean (plotnine's stat_summary with
-      ``fun_data='mean_cl_boot'``). This is the legacy default.
+    - None / "quartiles": median +/- Q1/Q3 IQR (R's default for discrete x).
+    - "iqr": alias for "quartiles".
+    - "ci": bootstrap CI on the mean (plotnine's stat_summary with
+      ``fun_data='mean_cl_boot'``).
+    - "sterr": mean +/- 1.96 * standard error of the mean.
     - "stdev": mean +/- 1 SD as a crossbar (pointrange with computed limits).
     - "range": min-max range as a wider crossbar.
-    - "iqr": Q1-Q3 IQR as a boxplot-like crossbar.
     - "no": no summary layer at all.
     """
     if spread not in _VALID_SPREAD:
@@ -318,20 +392,32 @@ def _add_discrete_summary(p, spread: Optional[str]):
             f"got {spread!r}."
         )
 
-    # R-token aliases (v0.8.0): "quartiles" == "iqr"; "sterr" == "ci".
-    # Python legacy default None ≡ "ci" (bootstrap CI via stat_summary).
-    if spread is None:
-        spread = "ci"
-    elif spread == "quartiles":
+    # R-token aliases: "quartiles" == "iqr".  Default to "iqr" to
+    # match R-flexplot's discrete-x default; legacy Python callers can
+    # request "ci" explicitly.
+    if spread is None or spread == "quartiles":
         spread = "iqr"
-    elif spread == "sterr":
-        spread = "ci"
 
     if spread == "no":
         return p
 
     if spread == "ci":
         p += stat_summary(fun_data="mean_cl_boot", color="red", size=1)
+        return p
+
+    if spread == "sterr":
+        # Standard error of the mean: sd / sqrt(n).  R-flexplot uses the
+        # same formula with a historical n-1 denominator; we use the
+        # conventional sample-size denominator for consistency with
+        # statsmodels / scipy.
+        fun = _make_spread_fn(
+            np.mean,
+            lambda x: (
+                np.mean(x) - 1.96 * (np.std(x, ddof=1) / np.sqrt(len(x))),
+                np.mean(x) + 1.96 * (np.std(x, ddof=1) / np.sqrt(len(x))),
+            ),
+        )
+        p += stat_summary(fun_data=fun, geom="pointrange", color="red", size=0.5)
         return p
 
     # stdev / range / iqr: use a precomputed summary dataframe + pointrange.
@@ -355,7 +441,130 @@ def _add_discrete_summary(p, spread: Optional[str]):
     else:  # pragma: no cover — guarded by validator
         return p
 
-    p += stat_summary(fun_data=fun, fun_y=np.mean, geom="pointrange", color="red", size=0.5)
+    p += stat_summary(fun_data=fun, geom="pointrange", color="red", size=0.5)
+    return p
+
+
+def _plot_univariate(
+    data: pd.DataFrame,
+    outcome: str,
+    plot_type: Optional[str] = None,
+    bins: Optional[int] = None,
+):
+    """Build an intercept-only / univariate distribution plot.
+
+    Mirrors ``r-flexplot/R/flexplot_helper.R::flexplot_histogram`` plus the
+    bivariate ``plot.type`` variants.  ``outcome`` is the variable being
+    visualized (usually the formula's ``y``).
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Plotting data frame.  May already be a subsample when ``sample=`` is
+        used, but the caller decides that before invoking this helper.
+    outcome : str
+        Column name of the variable to plot.
+    plot_type : {None, "histogram", "qq", "density", "boxplot", "violin"}, optional
+        Univariate geom override.  ``None`` defaults to a histogram.
+    bins : int, optional
+        Number of histogram bins.  Ignored for non-histogram plot types.
+
+    Returns
+    -------
+    plotnine.ggplot
+        A complete univariate plot with ``theme_bw`` and appropriate axis
+        labeling.
+    """
+    plot_type = plot_type or "histogram"
+    is_numeric = pd.api.types.is_numeric_dtype(data[outcome])
+
+    # Categorical outcome: R draws a bar chart regardless of plot_type.
+    if not is_numeric:
+        p = ggplot(data, aes(x=outcome)) + geom_bar()
+        p += labs(x=outcome, title=f"Distribution of {outcome}")
+        p += theme_bw()
+        return p
+
+    if plot_type == "qq":
+        p = ggplot(data, aes(sample=outcome))
+        p += stat_qq()
+        p += stat_qq_line()
+        p += labs(title=f"QQ plot of {outcome}")
+        p += theme_bw()
+        return p
+
+    if plot_type == "density":
+        p = ggplot(data, aes(x=outcome)) + geom_density()
+        p += labs(x=outcome, title=f"Density of {outcome}")
+        p += theme_bw()
+        return p
+
+    if plot_type in {"boxplot", "violin"}:
+        geom = geom_boxplot() if plot_type == "boxplot" else geom_violin()
+        p = ggplot(data, aes(y=outcome)) + geom
+        p += labs(y=outcome, title=f"Distribution of {outcome}")
+        p += theme_bw()
+        # Hide the redundant x-axis markings (the natural analogue of
+        # R's coord_flip + blank x-axis for a univariate boxplot).
+        p += theme(
+            axis_title_x=element_blank(),
+            axis_text_x=element_blank(),
+            axis_ticks_major_x=element_blank(),
+        )
+        return p
+
+    # Default / explicit histogram
+    n_bins = bins if bins is not None else 30
+    p = ggplot(data, aes(x=outcome)) + geom_histogram(
+        bins=n_bins, fill="lightgray", color="black"
+    )
+    p += labs(x=outcome, title=f"Distribution of {outcome}")
+    p += theme_bw()
+    return p
+
+
+def _plot_related(
+    data: pd.DataFrame,
+    diff_col: str,
+    spread: Optional[str],
+    plot_type: Optional[str],
+    jitter: Union[bool, tuple],
+    alpha: float,
+    raw_data: bool,
+):
+    """Build a related-samples / paired difference plot.
+
+    Mirrors ``r-flexplot/R/flexplot_helper.R::flexplot_related``.  The input
+    ``data`` is expected to contain a single column ``diff_col`` of paired
+    difference scores.
+    """
+    p = ggplot(data, aes(x=1, y=diff_col)) + theme_bw()
+    p += geom_hline(yintercept=0, color="lightgray")
+    p += labs(y=diff_col, title=f"{diff_col}")
+    p += theme(
+        axis_title_x=element_blank(),
+        axis_text_x=element_blank(),
+        axis_ticks_major_x=element_blank(),
+    )
+
+    if plot_type in {"boxplot", "violin"}:
+        geom = geom_boxplot() if plot_type == "boxplot" else geom_violin()
+        p += geom
+    else:
+        # Default/errorbar path: show jittered points + a dispersion marker.
+        if raw_data:
+            if jitter is None:
+                jitter_xy = (0.05, 0.0)
+            elif isinstance(jitter, bool):
+                jitter_xy = (0.05, 0.0) if jitter else (0.0, 0.0)
+            else:
+                jitter_xy = (float(jitter[0]), float(jitter[1]) if len(jitter) > 1 else 0.0)
+            if jitter_xy[0] > 0:
+                p += geom_jitter(width=jitter_xy[0], height=jitter_xy[1], alpha=alpha)
+            else:
+                p += geom_point(alpha=alpha)
+        p = _add_discrete_summary(p, spread)
+
     return p
 
 
@@ -383,12 +592,21 @@ def _make_spread_fn(center_fn, spread_fn):
     return _f
 
 
-_VALID_FLEXPLOT_METHODS = frozenset({"auto", "lm", "loess", "polynomial", "cubic", "logistic", "rlm", "glm"})
+_VALID_FLEXPLOT_METHODS = frozenset(
+    {"auto", "lm", "loess", "quadratic", "polynomial", "cubic", "logistic", "rlm", "poisson", "Gamma"}
+)
 
 # Recognized methods for overlay entries. Includes a broader set than the
 # primary ``method`` parameter because plotnine/statsmodels supports more
 # smoothers for overlay use.
 _VALID_OVERLAY_METHODS = frozenset({"lm", "loess", "lowess", "glm", "rlm", "ols", "wls", "gls", "mavg"})
+
+# Recognized plot_type overrides. Histogram/QQ/density/violin are used
+# primarily for intercept-only (univariate) plots but are accepted anywhere
+# the data type permits them.
+_VALID_PLOT_TYPES = frozenset(
+    {"scatter", "line", "boxplot", "bar", "histogram", "qq", "density", "violin"}
+)
 
 # Default color cycle for overlay entries (distinct from the primary
 # ``"blue"`` so the primary line is always visually identifiable).
@@ -399,7 +617,34 @@ _OVERLAY_COLOR_CYCLE = ("#e74c3c", "#2ecc71", "#9b59b6", "#f39c12", "#1abc9c")
 # The parser accepts these for forward-compatibility with v0.7.0 (real
 # interaction-aware fitting), but the default fit in v0.6.x is still
 # additive — a UserWarning is emitted to make this explicit.
-_INTERACTION_OP = re.compile(r"[*:]")
+_INTERACTION_OP = re.compile(r"(?<!\*)\*(?!\*)|:")
+
+
+def _split_formula_terms(text: str, sep: str = "+") -> List[str]:
+    """Split ``text`` on ``sep`` only outside parentheses.
+
+    Used to split the RHS of a flexplot formula into additive terms without
+    breaking apart function calls such as ``I(x ** 2 + 1)``.
+    """
+    depth = 0
+    current: List[str] = []
+    terms: List[str] = []
+    for ch in text:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == sep and depth == 0:
+            term = "".join(current).strip()
+            if term:
+                terms.append(term)
+            current = []
+            continue
+        current.append(ch)
+    term = "".join(current).strip()
+    if term:
+        terms.append(term)
+    return terms
 
 
 def _expand_r_formula(text: str) -> str:
@@ -477,6 +722,534 @@ def _normalize_overlay(overlay):
     return normalized
 
 
+# ---------------------------------------------------------------------------
+# Formula-function detection / evaluation (R-flexplot parity, v0.8.x+).
+# R's ``formula_functions`` looks for terms containing ``(`` (e.g. ``log(x)``,
+# ``sqrt(x)``, ``poly(x, 2)``), applies the expression to ``data`` (via R's
+# ``eval(parse(...))`` with the data as the evaluation environment), stores
+# the result in a column named after the inner variable (e.g. ``x``), and
+# rewrites the formula so downstream code sees ``y ~ x``.
+#
+# Python parity note: we use a SAFE whitelisted evaluator (numpy / pandas /
+# math / statsmodels / patsy built-ins) rather than ``eval()`` on arbitrary
+# strings, so a user-supplied formula can only invoke a closed set of
+# known-safe functions.  Unknown functions raise ``ValueError``.
+# ---------------------------------------------------------------------------
+
+
+# Whitelisted functions available inside formula terms. Keys are the names
+# users may write (lowercase, since formula evaluation is case-insensitive
+# for Python identifiers matched against this map); values are the callable.
+_FORMULA_FUNCS = {
+    # numpy ufuncs / reductions
+    "log": np.log,
+    "log2": np.log2,
+    "log10": np.log10,
+    "log1p": np.log1p,
+    "exp": np.exp,
+    "exp2": np.exp2,
+    "expm1": np.expm1,
+    "sqrt": np.sqrt,
+    "abs": np.abs,
+    "abs_": np.abs,  # alias to handle ``abs()`` when ``abs`` shadows builtin
+    "sign": np.sign,
+    "round": np.round,
+    "floor": np.floor,
+    "ceil": np.ceil,
+    "sin": np.sin,
+    "cos": np.cos,
+    "tan": np.tan,
+    "asin": np.arcsin,
+    "acos": np.arccos,
+    "atan": np.arctan,
+    "sinh": np.sinh,
+    "cosh": np.cosh,
+    "tanh": np.tanh,
+    # math module (scalar → scalar; will be wrapped to vectorize below)
+    "log_m": __import__("math").log,
+    "exp_m": __import__("math").exp,
+    "sqrt_m": __import__("math").sqrt,
+    # I(): identity (no-op; the ``I(x**2)`` R idiom)
+    "I": (lambda x: x),
+    # poly(): raw polynomial of given degree; default degree=2 (matches R's
+    # default ``poly(x, 2, raw=TRUE)``).  Returns a numpy array with columns
+    # ``[x, x^2, ..., x^degree]``; we use the highest-degree column as the
+    # value (R returns the full matrix but ``formula_functions`` only stores
+    # it under the inner-variable name; we keep the highest non-linear
+    # term so downstream plots/smoothers see a single transformed column).
+    "poly": None,  # filled in by _apply_formula_function (needs degree kwarg)
+}
+
+
+def _apply_formula_function(func_name: str, inner_expr: str, var_name: str,
+                            data: pd.DataFrame, depth: int = 0):
+    """Apply a whitelisted function to a single inner expression.
+
+    ``inner_expr`` is the raw text inside the parentheses, e.g. ``"x"`` or
+    ``"x, 2"``.  Returns a numpy array of values, ready to be stored in a
+    column.  Raises ``ValueError`` for unknown functions or expressions
+    that reference missing / unknown columns.
+
+    Supports a single positional argument (the inner variable) plus
+    optional numeric constants (e.g. ``poly(x, 2)``).  Inner expressions
+    like ``a + b`` are not supported (R's ``eval(parse(...))`` would allow
+    them, but we deliberately restrict to a single column reference so
+    there's no way for the formula string to reach other columns).
+    """
+    if depth > 3:
+        raise ValueError(
+            f"Nested formula functions beyond depth 3 are not supported; "
+            f"got {inner_expr!r} inside {func_name!r}."
+        )
+
+    parts = [p.strip() for p in inner_expr.split(",")]
+    if not parts or not parts[0]:
+        raise ValueError(
+            f"Empty inner expression for {func_name}(...): {inner_expr!r}"
+        )
+    inner_var = parts[0]
+    if inner_var not in data.columns:
+        raise ValueError(
+            f"Formula function {func_name}({inner_expr!r}) references "
+            f"missing column {inner_var!r}; available: {list(data.columns)}."
+        )
+    inner_arr = data[inner_var].to_numpy()
+
+    # poly(x, k): numpy polyfeatures [1, x, x^2, ..., x^k].  R uses raw
+    # (un-orthogonalized) polynomials by default; we follow suit for parity.
+    # Since we only store ONE column named after ``inner_var`` (R also
+    # stores the whole matrix under that name), we keep the highest-degree
+    # polynomial column — i.e. x^k for degree k.  Users who want the full
+    # design matrix should construct it via method='polynomial' instead.
+    if func_name == "poly":
+        try:
+            degree = int(parts[1]) if len(parts) > 1 else 2
+        except (ValueError, TypeError):
+            raise ValueError(
+                f"poly() requires an integer degree; got {parts[1]!r}."
+            )
+        if degree < 1:
+            raise ValueError(
+                f"poly() requires degree >= 1; got {degree}."
+            )
+        return np.asarray(inner_arr, dtype=float) ** degree
+
+    if func_name not in _FORMULA_FUNCS:
+        raise ValueError(
+            f"Formula function {func_name!r} is not supported; "
+            f"allowed names: {sorted(k for k in _FORMULA_FUNCS if k)}."
+        )
+    fn = _FORMULA_FUNCS[func_name]
+
+    # For numpy ufuncs, calling on a numpy array vectorizes correctly.  For
+    # math.* scalar funcs (e.g. math.sqrt), wrap to vectorize.  ``I()`` is
+    # a no-op passthrough; we handled it above via the identity lambda.
+    try:
+        result = fn(inner_arr)
+    except Exception as exc:
+        raise ValueError(
+            f"Failed to apply formula function {func_name}() to column "
+            f"{inner_var!r}: {exc}"
+        ) from exc
+    return np.asarray(result)
+
+
+# Regex matching a term of the form ``funcName(inner[, args])``.  Greedy
+# only on the inner-var portion, so ``log(x)`` matches as ``log`` + ``x``.
+_FORMULA_FUNC_RE = re.compile(
+    r"^\s*([A-Za-z_][A-Za-z_0-9]*)\s*\(\s*([^()]+)\s*\)\s*$"
+)
+
+
+def _apply_formula_functions(formula: str, data: pd.DataFrame):
+    """Detect and evaluate formula functions (R ``formula_functions`` parity).
+
+    Scans the right-hand side of ``formula`` for any term containing ``(``
+    (i.e. a function call).  For each, applies the whitelisted function to
+    the referenced column(s), stores the result in a new column named after
+    the inner variable (overwriting it if present — R behavior), and
+    rewrites the formula so downstream code sees the simpler
+    ``inner_var`` name.
+
+    Returns
+    -------
+    (new_data, new_formula, transformed_terms)
+        ``new_data`` is the input DataFrame augmented with the new
+        transformed columns.  ``new_formula`` is the rewritten formula
+        string.  ``transformed_terms`` is a list of ``(term, func_name,
+        inner_var)`` tuples describing each transformation that was
+        applied (empty list when the formula has no functions).
+    """
+    if "|" not in formula:
+        main_part = formula
+        given_part = None
+    else:
+        main_part, given_part = formula.split("|", 1)
+
+    if "~" not in main_part:
+        # No predictor side: nothing to transform.
+        return data.copy(), formula, []
+
+    y_part, x_part = main_part.split("~", 1)
+    x_part = x_part.strip()
+    y_part = y_part.strip()
+
+    # Split the RHS into additive terms without breaking apart function
+    # calls such as ``I(x ** 2 + 1)``.
+    raw_terms = _split_formula_terms(x_part, "+")
+    if not raw_terms:
+        return data.copy(), formula, []
+
+    transformed = []  # list of (original_term, func_name, inner_var)
+    new_data = data.copy()
+    new_x_parts = []
+
+    def _process_term(term: str, parts: List[str]) -> None:
+        """Apply formula-function transformation to one additive term.
+
+        Appends the rewritten term to ``parts`` and updates ``new_data`` /
+        ``transformed`` in the enclosing scope.
+        """
+        # If the term is an interaction (``a:b`` or ``a*b``) AND it's not a
+        # formula function call, leave it untouched.  Formula-function
+        # terms (``log(x)``, ``sqrt(z)``, ``poly(x, 2)``, ``I(x ** 2)``)
+        # contain parentheses and are processed below even when their
+        # inner expressions contain arithmetic operators like ``**``.
+        if ("*" in term or ":" in term) and "(" not in term:
+            parts.append(term)
+            return
+
+        m = _FORMULA_FUNC_RE.match(term)
+        if not m:
+            parts.append(term)
+            return
+        func_name, inner = m.group(1), m.group(2).strip()
+
+        if func_name == "I":
+            try:
+                result = _eval_I_inner(inner, new_data)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Unsupported expression inside I(): {inner!r} ({exc})."
+                ) from exc
+            inner_var = _extract_single_var(inner)
+            if inner_var is None:
+                raise ValueError(
+                    f"I() inner expression must reference a single column; "
+                    f"got {inner!r}."
+                )
+            new_data[inner_var] = result
+            transformed.append((term, "I", inner_var))
+            parts.append(inner_var)
+            return
+
+        result = _apply_formula_function(func_name, inner, None, new_data)
+        inner_var = _extract_single_var(inner.split(",")[0])
+        if inner_var is None:
+            raise ValueError(
+                f"Formula function {func_name}() must have a single column "
+                f"as its first argument; got {inner!r}."
+            )
+        new_data[inner_var] = result
+        transformed.append((term, func_name, inner_var))
+        parts.append(inner_var)
+
+    for term in raw_terms:
+        _process_term(term, new_x_parts)
+
+    new_main = f"{y_part} ~ {' + '.join(new_x_parts)}"
+
+    if given_part is not None:
+        given_terms = _split_formula_terms(given_part, "+")
+        new_given_parts = []
+        for term in given_terms:
+            _process_term(term, new_given_parts)
+        new_formula = f"{new_main} | {' + '.join(new_given_parts)}"
+    else:
+        new_formula = new_main
+
+    return new_data, new_formula, transformed
+
+
+# Whitelisted operators for I() inner expressions.  Only single-column
+# references plus arithmetic on them are allowed.
+_I_ALLOWED_BINOPS = {
+    ast.Add: lambda a, b: a + b,
+    ast.Sub: lambda a, b: a - b,
+    ast.Mult: lambda a, b: a * b,
+    ast.Div: lambda a, b: a / b,
+    ast.Pow: lambda a, b: a ** b,
+    ast.Mod: lambda a, b: a % b,
+}
+
+
+def _eval_I_inner(inner: str, data: pd.DataFrame):
+    """Safely evaluate an ``I()`` inner expression.
+
+    Allowed forms:
+      - ``x``: just a column.
+      - ``x ** k``, ``x * k``, ``x + k``, ``x - k``, ``x / k`` with a
+        numeric constant ``k``.
+      - ``x ** k + c``, ``x * k + c``, etc. (column * power + constant).
+      - ``x + y`` (column + column) -- accepted because R allows it.
+    Returns a numpy array.
+
+    We deliberately reject anything that looks like a function call inside
+    ``I()`` (use the explicit ``log(x)`` syntax for that).
+    """
+    tree = ast.parse(inner, mode="eval")
+    return _eval_I_node(tree.body, data)
+
+
+def _eval_I_node(node, data: pd.DataFrame):
+    if isinstance(node, ast.Name):
+        if node.id not in data.columns:
+            raise ValueError(f"Unknown column {node.id!r}")
+        return data[node.id].to_numpy()
+    if isinstance(node, ast.Constant):
+        if not isinstance(node.value, (int, float)):
+            raise ValueError(
+                f"Only numeric constants are allowed in I(); got {node.value!r}"
+            )
+        return node.value
+    if isinstance(node, ast.BinOp):
+        op_type = type(node.op)
+        if op_type not in _I_ALLOWED_BINOPS:
+            raise ValueError(
+                f"Operator {op_type.__name__} is not allowed inside I()."
+            )
+        left = _eval_I_node(node.left, data)
+        right = _eval_I_node(node.right, data)
+        return _I_ALLOWED_BINOPS[op_type](left, right)
+    if isinstance(node, ast.UnaryOp):
+        if isinstance(node.op, ast.USub):
+            return -_eval_I_node(node.operand, data)
+        if isinstance(node.op, ast.UAdd):
+            return _eval_I_node(node.operand, data)
+        raise ValueError(
+            f"Unary operator {type(node.op).__name__} not allowed in I()."
+        )
+    raise ValueError(
+        f"Expressions of type {type(node).__name__} are not allowed in I()."
+    )
+
+
+def _extract_single_var(inner: str) -> Optional[str]:
+    """Return the single column name referenced in ``inner``.
+
+    Accepts forms: ``x``, ``x ** 2``, ``x + 1`` (column reference must be
+    the LHS identifier; constants and arithmetic are allowed alongside it).
+    Returns None if the expression does not reference exactly one column.
+    """
+    try:
+        tree = ast.parse(inner, mode="eval")
+    except SyntaxError:
+        return None
+    vars_found = set()
+    for sub in ast.walk(tree):
+        if isinstance(sub, ast.Name):
+            vars_found.add(sub.id)
+    # Filter out Python built-in names that may appear in the constant part.
+    vars_found.discard("pi")
+    vars_found.discard("e")
+    if len(vars_found) == 1:
+        return next(iter(vars_found))
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Multivariate slotting / auto-binning for slot 2+ numeric predictors
+# (R-flexplot ``flexplot_break_me`` parity, v0.8.x+).
+# After the formula is split, any numeric predictor in slot 2+ or in
+# ``given`` with more than ``bins`` unique values is binned into a
+# ``<varname>_binned`` column (used as the color / group aesthetic).
+# ---------------------------------------------------------------------------
+
+
+_DEFAULT_BINS = 3
+
+
+def _slot_bin_numeric_predictors(
+    data: pd.DataFrame,
+    formula: str,
+    bins: Optional[int] = None,
+    breaks: Optional[List[float]] = None,
+    labels: Optional[List[str]] = None,
+):
+    """Bin numeric slot-2+ / given predictors into ``<name>_binned`` columns.
+
+    Mirrors R's ``flexplot_break_me``: a numeric predictor is binned when
+    it appears in slot 2 or later (i.e. it's the color/group or a panel
+    variable) AND its unique-value count exceeds ``bins``.  Returns
+    ``(new_data, new_color, new_given, bin_count)`` where ``new_data``
+    has the new ``<varname>_binned`` columns appended (or overwritten),
+    ``new_color`` is the column name to use for the color aesthetic
+    (possibly the binned version), and ``new_given`` is the list of
+    column names to use for facet variables (also possibly the binned
+    versions).  ``bin_count`` is the number of variables that were
+    actually binned.
+
+    If a third non-given predictor is present (e.g. ``y ~ x1 + x2 + x3``),
+    this raises ``ValueError`` because R limits the display to at most
+    4 visual variables (1 outcome + 3 predictors) and adding more
+    predictors overwhelms the plot.
+
+    Parameters
+    ----------
+    bins : int, default 3
+        Cut-point count used by ``pd.cut`` for the auto-bin path.  Mirrors
+        R's default ``bins=3``.  Ignored when ``breaks`` is provided.
+    breaks, labels : optional
+        Reserved for forward-compat with R's explicit ``breaks=list(...)``
+        API; current implementation accepts only a single breaks/labels
+        pair (used for any predictor that needs binning).  Tests pass a
+        flat ``breaks`` and ``labels`` and rely on the auto-cut fallback
+        path; richer dict-based breaks can be added in a later release.
+    """
+    bins = bins if bins is not None else _DEFAULT_BINS
+    if not isinstance(bins, int) or bins < 2:
+        # Silently fall back to default for invalid bins (callers should
+        # have validated via _validate_binning_params already).
+        bins = _DEFAULT_BINS
+
+    variables = parse_flexplot_formula(formula)
+    if variables.get("intercept_only", False):
+        return data.copy(), variables.get("color"), variables.get("given", []), 0
+
+    y = variables["y"]
+    x = variables["x"]
+    color = variables.get("color")
+    given = variables.get("given", [])
+    all_x = variables.get("all_x", [])  # includes any +color tokens
+
+    # If there are 3+ non-given predictors (i.e. x + color + extra), reject.
+    # R limits flexplot to 4 display vars total (1 outcome + 3 predictors)
+    # for cognitive load; an extra slot would also need a 4th aesthetic.
+    # `all_x` already includes interaction-expanded terms, so we strip
+    # those out for the count.
+    atom_predictors = [
+        t for t in all_x if ":" not in t and "*" not in t
+    ]
+    if len(atom_predictors) > 2:
+        raise ValueError(
+            f"Formula {formula!r} has {len(atom_predictors)} non-given "
+            f"predictors ({atom_predictors}); flexplot supports at most "
+            f"two non-given predictors (x and an optional color).  For "
+            f"more, move them into the `| given` part of the formula."
+        )
+
+    new_data = data.copy()
+    bin_count = 0
+
+    # Helper: bin a numeric column into ``<col>_binned`` using ``pd.cut``
+    # over equal-width cuts between min/max.
+    def _bin_one(col: str) -> Optional[str]:
+        nonlocal bin_count
+        if col is None or col not in new_data.columns:
+            return col
+        s = new_data[col]
+        if not pd.api.types.is_numeric_dtype(s):
+            return col
+        n_unique = s.dropna().nunique()
+        if n_unique <= bins:
+            # Already low-cardinality: skip binning (R skips when <= bins).
+            return col
+        # If we got an explicit breaks list, use it; otherwise equal-width.
+        x_min = float(np.nanmin(s.to_numpy()))
+        x_max = float(np.nanmax(s.to_numpy()))
+        cuts = np.linspace(x_min, x_max, num=int(bins) + 1).tolist()
+        binned_col = f"{col}_binned"
+        new_data[binned_col] = pd.cut(
+            s, bins=cuts, labels=labels, include_lowest=True
+        ).astype(str)
+        bin_count += 1
+        return binned_col
+
+    # Bin the color predictor if it's numeric and high-cardinality.
+    new_color = _bin_one(color) if color is not None else None
+
+    # Bin the given variables similarly.
+    new_given = [_bin_one(g) if g is not None else None for g in given]
+    new_given = [g for g in new_given if g is not None]
+
+    return new_data, new_color, new_given, bin_count
+
+
+# ---------------------------------------------------------------------------
+# flexplot_alpha_default / match_jitter_categorical parity (v0.8.x+).
+# ---------------------------------------------------------------------------
+
+
+# Sentinel alpha used internally to mean "user did not pass alpha"
+# (matches R's ``alpha=.99977`` default in flexplot_prep_variables).
+_FLEXPLOT_ALPHA_SENTINEL = 0.99977
+
+
+def flexplot_alpha_default(data: pd.DataFrame, x: Optional[str], y: str,
+                           alpha: Optional[float]) -> float:
+    """Return the alpha to use for the raw-data geom.
+
+    Mirrors R's ``flexplot_alpha_default``:
+      - If user explicitly set alpha (not the sentinel), return it as-is.
+      - Otherwise (R sentinel ``.99977`` / Python ``None``), use 0.2 for
+        categorical x, 0.5 for numeric x.
+      - For intercept-only formulas (no x axis), pass through.
+
+    The Python-side alpha resolution (see ``flexplot()``) keeps the legacy
+    behavior of ``alpha=0.3`` for numeric binary y; this helper is the
+    categorical-vs-numeric split.
+    """
+    if alpha is not None and alpha != _FLEXPLOT_ALPHA_SENTINEL:
+        # Explicit user value.
+        return float(alpha)
+    if x is None or x not in data.columns:
+        # Intercept-only / no x: pass through.
+        return float(alpha) if alpha is not None else 0.5
+    s = data[x]
+    if not pd.api.types.is_numeric_dtype(s):
+        return 0.2
+    return 0.5
+
+
+def match_jitter_categorical(x, is_categorical: bool):
+    """Resolve the jitter argument for the categorical / mixed-x branch.
+
+    Mirrors R's ``match_jitter_categorical``:
+
+      - ``None`` + categorical x  → (0.2, 0)
+      - ``None`` + numeric x      → (0, 0) (no jitter)
+      - ``True``  → (0.2, 0)
+      - ``False`` → (0, 0)
+      - numeric length 1          → (x, 0)
+      - numeric length 2          → (x, y)
+      - anything else             → raises ``ValueError``
+
+    Returns a 2-tuple ``(width, height)``.
+    """
+    if x is None:
+        return (0.2, 0.0) if is_categorical else (0.0, 0.0)
+    if isinstance(x, bool):
+        return (0.2, 0.0) if x else (0.0, 0.0)
+    if isinstance(x, (int, float)):
+        return (float(x), 0.0)
+    if isinstance(x, (list, tuple)):
+        if len(x) == 1:
+            return (float(x[0]), 0.0)
+        if len(x) == 2:
+            return (float(x[0]), float(x[1]))
+        if len(x) > 2:
+            raise ValueError(
+                f"jitter must be a length-1 or length-2 sequence; got length "
+                f"{len(x)}: {x!r}."
+            )
+        # Empty sequence
+        raise ValueError(f"jitter must be non-empty; got {x!r}.")
+    raise ValueError(
+        f"jitter must be None, a bool, or a numeric length-1/2 sequence; "
+        f"got {type(x).__name__}: {x!r}."
+    )
+
+
 def flexplot(
     formula: str,
     data: pd.DataFrame,
@@ -512,12 +1285,16 @@ def flexplot(
         accepted since v0.6.2; see Notes below.
     data : pd.DataFrame
         Non-empty data frame holding the referenced columns.
-    method : {"auto", "lm", "loess", "polynomial", "cubic", "logistic"}
+    method : {"auto", "lm", "loess", "quadratic", "polynomial", "cubic", "logistic", "rlm", "poisson", "Gamma"}
         Smoother for the numeric-vs-numeric branch. ``"auto"`` selects LM.
-        ``"polynomial"`` / ``"cubic"``: degree-3 OLS in x (cubic is an alias).
-        ``"logistic"``: GLM with logit link on numeric binary y (falls back
-        to OLS with a warning if y is not in {0, 1}; the binary pre-check is
-        bypassed so the parametric branch always fires).
+        ``"quadratic"`` / ``"polynomial"``: degree-2 OLS in x (matches R).
+        ``"cubic"``: degree-3 OLS in x.
+        ``"logistic"``: GLM with logit link on numeric binary y.
+        ``"rlm"``: robust regression via statsmodels RLM (Huber).
+        ``"poisson"``: GLM with log link (requires non-negative y).
+        ``"Gamma"``: GLM with inverse link (requires strictly positive y).
+        Non-conforming outcomes for logistic/poisson/Gamma fall back to OLS
+        with a ``UserWarning``.
     uncertainty : {None, "ci", "prediction", "bootstrap"}, default "ci"
         Type of uncertainty band drawn around the fitted line.
         - ``None``: no fit, just the scatter.
@@ -550,13 +1327,15 @@ def flexplot(
     breaks : list of float, optional
         Explicit cut points for discretizing numeric x. Takes precedence
         over ``bins`` when both are given (a ``UserWarning`` is emitted).
-    spread : {None, "ci", "stdev", "range", "iqr", "no"}, default None
+    spread : {None, "ci", "sterr", "stdev", "range", "iqr", "quartiles", "no"}, default None
         Dispersion marker drawn in the discrete-x branch alongside
         ``geom_jitter``. Mirrors R-flexplot's ``spread``.
-        - ``None`` / ``"ci"``: bootstrap CI on the mean (legacy default).
+        - ``None`` / ``"quartiles"`` / ``"iqr"``: median ± Q1/Q3 IQR
+          (R's default for discrete x).
+        - ``"ci"``: bootstrap CI on the mean.
+        - ``"sterr"``: mean ± 1.96 × standard error of the mean.
         - ``"stdev"``: mean ± 1 SD as a pointrange.
         - ``"range"``: min-max range.
-        - ``"iqr"``: Q1-Q3 IQR.
         - ``"no"``: no summary layer at all.
     sample : int, optional
         Subsample N rows for the plotnine layers (scatter / jitter) while
@@ -567,8 +1346,11 @@ def flexplot(
         red threshold at y=0; ``"dashed"`` for a black dashed reference
         at y=0; ``"slope1"`` for a diagonal slope=1 reference line for
         prediction-vs-observed overlays (v0.7.3+).
-    plot_type : {"scatter", "line", "boxplot", "bar", None}, default None
-        Explicit geom override. Bypasses the auto-dispatch.
+    plot_type : {"scatter", "line", "boxplot", "bar", "histogram", "qq", "density", "violin", None}, default None
+        Explicit geom override. Bypasses the auto-dispatch.  For
+        intercept-only formulas, ``"histogram"`` (default), ``"qq"``,
+        ``"density"``, ``"boxplot"``, and ``"violin"`` produce univariate
+        distribution plots.
     return_data : bool, default False
         When ``True``, return ``{"plot": ggplot, "data": DataFrame}``
         instead of just the plot. Useful with ``sample=`` to know which
@@ -581,9 +1363,12 @@ def flexplot(
         Override the axis/legend labels derived from the formula. Accepts
         keys ``x``, ``y``, ``title``, ``subtitle``, ``caption``, ``color``.
     related : bool, default False
-        R-flexplot's panel-linking flag. Currently a no-op on the Python
-        side (plotnine already shares scales by default). Accepted for
-        R-parity; raises ``TypeError`` if not a bool.
+        R-flexplot's paired-samples flag.  When True and the formula is
+        ``y ~ x`` with a two-level categorical predictor, the plot shows
+        paired difference scores (level2 - level1) against x = 1, with a
+        reference line at 0 and a dispersion marker.  Requires equal group
+        sizes and no color or panel variables.  Raises ``ValueError`` when
+        the precondition is not met.
     interaction_model : bool, default False
         When ``True`` and the formula contains ``*`` or ``:`` syntax, fit
         a statsmodels OLS with the actual interaction term and overlay
@@ -693,13 +1478,49 @@ def flexplot(
             UserWarning,
             stacklevel=2,
         )
-    _validate_data_for_plot(formula, data, variables)
+
+    # --- Formula-function evaluation (R ``formula_functions`` parity) ---
+    # Detect terms like ``log(x)``, ``sqrt(x)``, ``poly(x, 2)``, ``I(x**2)``
+    # in the right-hand side, apply the whitelisted function to ``data``,
+    # store the result in a column named after the inner variable, and
+    # rewrite the formula so downstream code sees the simpler name.
+    transformed_data, transformed_formula, transformed_terms = (
+        _apply_formula_functions(formula, data)
+    )
+    if transformed_terms:
+        # Re-parse the rewritten formula; variables dict now reflects the
+        # simpler (un-transed) term names.
+        variables = parse_flexplot_formula(transformed_formula)
+        # Preserve the interaction flag from the original parse (it was
+        # already detected before the function-rewrite pass).
+        if "has_interaction" not in variables:
+            variables["has_interaction"] = False
+        formula = transformed_formula
+        data = transformed_data
+
+    _validate_data_for_plot(
+        formula, data, variables, intercept_only=variables.get("intercept_only", False)
+    )
 
     y = variables["y"]
     x = variables["x"]
     color = variables["color"]
     given = variables["given"]
     intercept_only = variables.get("intercept_only", False)
+
+    # --- Auto-categorize low-cardinality numeric predictors ---
+    # R-flexplot's ``convert_if_less_than_five`` turns numeric variables
+    # with <5 unique values into ordered factors.  This must run BEFORE
+    # the type-detection / binning below so the low-cardinality numeric
+    # path is taken (discrete x branch) rather than the high-cardinality
+    # numeric path (LM / loess smoother).
+    if not intercept_only and x is not None:
+        cat_targets = [v for v in [x, color, *given] if v is not None]
+        # Avoid converting columns that already are transformed to a
+        # ``_binned`` string — those are intentionally stringified above.
+        cat_targets = [v for v in cat_targets if not v.endswith("_binned")]
+        if cat_targets:
+            data = _convert_low_cardinality_to_categorical(data, cat_targets)
 
     # --- Optional subsampling (v0.6.5+) ---
     # When ``sample=N`` is set and N < len(data), subsample to N rows for
@@ -723,13 +1544,117 @@ def flexplot(
         plot_input_df = data
         fit_input_df = data
 
+    # --- Multivariate slotting / auto-binning for slot 2+ numeric predictors ---
+    # Mirrors R's ``flexplot_break_me``: a numeric color or given variable
+    # with more than ``bins`` unique values is binned into ``<name>_binned``
+    # and that column drives the color aesthetic / facets.  Re-raises on
+    # formulas with 3+ non-given predictors.
+    if not intercept_only:
+        slot_data, binned_color, binned_given, _bin_count = (
+            _slot_bin_numeric_predictors(
+                fit_input_df, formula, bins=bins, breaks=breaks, labels=labels
+            )
+        )
+        # Apply the binning to both plot and fit inputs.
+        binned_cols = [
+            c for c in slot_data.columns
+            if c not in fit_input_df.columns and c.endswith("_binned")
+        ]
+        # The helper returns ``slot_data`` containing the original columns
+        # PLUS any ``<name>_binned`` ones.  We merge them back into both
+        # ``plot_input_df`` and ``fit_input_df`` so the aesthetic mappings
+        # and the smoother fits see the binned columns.
+        if binned_cols:
+            for col in binned_cols:
+                # Original source column for the binned copy.
+                src = col[: -len("_binned")]
+                if src in fit_input_df.columns:
+                    # Carry over the binned values from slot_data; they are
+                    # a deterministic function of the original numeric
+                    # column, so the alignment is index-based.
+                    plot_input_df[col] = slot_data[col].to_numpy()
+                    fit_input_df[col] = slot_data[col].to_numpy()
+            # Update variables' color / given to point at the binned cols
+            # so the aes / facet wiring below uses them.
+            if binned_color is not None and color is not None:
+                variables["color"] = binned_color
+                color = binned_color
+            if binned_given:
+                # Replace ``given`` with the binned variants while keeping
+                # the same length / ordering as the original list.
+                new_given = []
+                for orig in variables["given"]:
+                    if orig is None:
+                        new_given.append(None)
+                        continue
+                    candidate = f"{orig}_binned"
+                    if candidate in fit_input_df.columns:
+                        new_given.append(candidate)
+                    else:
+                        new_given.append(orig)
+                variables["given"] = new_given
+                given = new_given
+
     if intercept_only:
         # Intercept-only: show a univariate distribution of y.
-        p = ggplot(plot_input_df, aes(x=y)) + geom_histogram(bins=30)
-        p += labs(title=f"Distribution of {y}")
-        p += theme_bw()
+        # R-flexplot supports histogram/qq/density/boxplot/violin via plot.type.
+        p = _plot_univariate(plot_input_df, y, plot_type=plot_type, bins=bins)
         if return_data:
             return {"plot": p, "data": plot_input_df}
+        return p
+
+    if not isinstance(related, bool):
+        raise TypeError(f"related must be a bool; got {type(related).__name__}.")
+
+    # --- Related-samples / paired difference plot (R-flexplot related=T) ---
+    # Only valid for y ~ x where x is a two-level grouping variable and there
+    # are no color/given facets.  We replace the data with paired difference
+    # scores (level2 - level1) and draw a univariate difference plot.
+    if related:
+        if color is not None or len(given) > 0:
+            raise ValueError(
+                "related=True is only supported for formulas with a single "
+                "predictor and no color or panel variables (e.g., 'y ~ x')."
+            )
+        if x is None:
+            raise ValueError("related=True requires a predictor variable.")
+
+        x_series = plot_input_df[x]
+        # Ensure a categorical-style grouping variable with exactly two levels.
+        if pd.api.types.is_numeric_dtype(x_series) and x_series.nunique(dropna=True) == 2:
+            x_series = x_series.astype(str)
+        levs = sorted(x_series.dropna().unique())
+        if len(levs) != 2:
+            raise ValueError(
+                f"related=True requires exactly 2 levels of the predictor; "
+                f"{x!r} has {len(levs)} levels."
+            )
+
+        groups = {
+            lev: plot_input_df.loc[x_series == lev, y].reset_index(drop=True)
+            for lev in levs
+        }
+        sizes = [len(g) for g in groups.values()]
+        if len(set(sizes)) != 1:
+            raise ValueError(
+                "related=True requires equal group sizes to compute paired "
+                f"differences; got sizes {dict(zip(levs, sizes))}."
+            )
+
+        diff_label = f"Difference ({levs[1]}-{levs[0]})"
+        related_df = pd.DataFrame({diff_label: groups[levs[1]].to_numpy() - groups[levs[0]].to_numpy()})
+        alpha_rel = alpha if alpha is not None else 0.5
+        p = _plot_related(
+            related_df,
+            diff_label,
+            spread,
+            plot_type,
+            jitter,
+            alpha_rel,
+            raw_data,
+        )
+        if return_data:
+            return {"plot": p, "data": related_df}
         return p
 
     # Reject 3+ given variables: the formula parser accepts them but only
@@ -805,7 +1730,6 @@ def flexplot(
     # when the auto-dispatch picks the wrong branch because the data
     # violates heuristics (e.g. 11 unique values in x rather than 10).
     if plot_type is not None:
-        _VALID_PLOT_TYPES = {"scatter", "line", "boxplot", "bar"}
         if plot_type not in _VALID_PLOT_TYPES:
             raise ValueError(
                 f"plot_type must be one of {sorted(_VALID_PLOT_TYPES)}; got {plot_type!r}."
@@ -816,6 +1740,8 @@ def flexplot(
             p += geom_line()
         elif plot_type == "boxplot":
             p += geom_boxplot()
+        elif plot_type == "violin":
+            p += geom_violin()
         elif plot_type == "bar":
             # plotnine's geom_bar doesn't accept fun=; use stat_summary
             # with fun_y=np.mean + geom="bar" to get a bar chart of
@@ -826,30 +1752,41 @@ def flexplot(
     else:
         skip_dispatch = False
 
-    # --- jitter / alpha / raw_data resolution (v0.8.0, R-parity) ---
-    # jitter: None -> legacy widths; True -> (0.1, 0.1); list/tuple of 2 ->
-    #   those values; False -> (0, 0) (use plain points).
-    if jitter is None:
-        jitter_xy = (0.2, 0.2)
-    elif isinstance(jitter, bool):
-        jitter_xy = (0.1, 0.1) if jitter else (0.0, 0.0)
-    elif isinstance(jitter, (list, tuple)) and len(jitter) == 2:
+    # --- jitter / alpha / raw_data resolution (v0.8.0+, R-parity) ---
+    # R ``match_jitter_categorical``: None + categorical x -> (0.2, 0);
+    # None + numeric x -> (0, 0); True -> (0.2, 0); False -> (0, 0);
+    # numeric length-1 -> (x, 0); length-2 -> (x, y).  We delegate to the
+    # helper for the categorical-numeric split.  The check uses the
+    # POST-binning ``is_x_discrete`` (which is True when ``bins=`` /
+    # ``breaks=`` discretized x, or when low-cardinality conversion kicked
+    # in) so a user who asks for `bins=4` always gets the categorical
+    # jitter defaults regardless of the underlying numeric dtype.
+    is_x_discrete_for_jitter = bool(is_x_discrete)
+    if isinstance(jitter, (list, tuple)) and len(jitter) == 2:
+        # Explicit numeric pair: bypass the R rule so users can still get
+        # the exact jitter widths they want.
         jitter_xy = (float(jitter[0]), float(jitter[1]))
+    elif isinstance(jitter, (int, float)) and not isinstance(jitter, bool):
+        # Numeric length-1: pass through (R: ``c(.2)`` -> ``(0.2, 0)``).
+        jitter_xy = (float(jitter), 0.0)
     else:
-        raise ValueError(
-            "jitter must be None, a bool, or a length-2 list/tuple "
-            "(x-width, y-width); got {jitter!r}.".format(jitter=jitter)
-        )
-    # alpha: None -> per-branch legacy defaults (0.3 binary, 0.5 otherwise);
-    # float in (0, 1] overrides everywhere.
+        jitter_xy = match_jitter_categorical(jitter, is_x_discrete_for_jitter)
+    # alpha: explicit value (float in (0, 1]) wins everywhere; otherwise
+    # use flexplot_alpha_default's categorical/numeric rule (0.2 for
+    # categorical x, 0.5 for numeric x).  Numeric binary y keeps the
+    # legacy 0.3 default (parity with prior releases and a slightly
+    # softer overlay on the tight 0/1 cluster).
     if alpha is not None:
         if not isinstance(alpha, (int, float)) or not (0 < alpha <= 1):
             raise ValueError(
                 f"alpha must be a float in (0, 1]; got {alpha!r}."
             )
-        alpha_point = alpha
+        alpha_point = float(alpha)
     else:
-        alpha_point = 0.3 if y_is_binary else 0.5
+        if y_is_binary:
+            alpha_point = 0.3
+        else:
+            alpha_point = flexplot_alpha_default(plot_input_df, x, y, alpha)
 
     # Determine plot type.
     # Order matters:
@@ -950,17 +1887,6 @@ def flexplot(
         }
         if labs_kwargs:
             p += labs(**labs_kwargs)
-
-    # --- Optional related=True (v0.6.6+) ---
-    # R-flexplot's related=True forces shared y/x scales across facet
-    # panels. plotnine's facet_wrap / facet_grid already share scales by
-    # default ('fixed'), so this is essentially a no-op for now; the
-    # 'free' / 'free_x' / 'free_y' opt-out is the actual user-facing
-    # control. We accept the flag for R-parity but document that it's
-    # currently a no-op on the Python side. Validating it exists so users
-    # get an explicit error if they typo it.
-    if not isinstance(related, bool):
-        raise TypeError(f"related must be a bool; got {type(related).__name__}.")
 
     # --- Optional ghost.line reference layer (v0.6.5+) ---
     # ghost_line="red": solid red reference line. Useful for highlighting a
@@ -1146,16 +2072,16 @@ def _add_numeric_smooth(
         # No fit at all — preserve the scatter only.
         return p
 
-    use_loess = method == "loess"
-    # polynomial/cubic are OLS fits with higher-order x terms; logistic is
-    # a GLM with the logit link. plotnine's geom_smooth(method="lm", ...) does
-    # NOT support poly-of-x cleanly, so we route these through statsmodels
-    # and add geom_line + geom_ribbon manually (mirroring the prediction /
-    # bootstrap branches).
-    if method in {"polynomial", "cubic", "logistic"}:
+    # polynomial/quadratic/cubic are OLS fits with higher-order x terms;
+    # logistic/poisson/Gamma are GLMs; rlm is robust regression.  plotnine's
+    # geom_smooth does NOT support all of these cleanly, so we route them
+    # through statsmodels and add geom_line + geom_ribbon manually.
+    if method in {"quadratic", "polynomial", "cubic", "logistic", "rlm", "poisson", "Gamma"}:
         return _add_parametric_smooth(
             p, data, x, y, method, uncertainty, level, bands
         )
+
+    use_loess = method == "loess"
 
     # --- Nested bands (multiple ribbons via multiple geom_smooth layers) ---
     if bands is not None:
@@ -1284,11 +2210,15 @@ def _add_parametric_smooth(
     if n < 2:
         return p
 
-    if method in {"polynomial", "cubic"}:
-        # Build the design matrix: intercept + x + x^2 + x^3.
+    if method in {"quadratic", "polynomial"}:
+        # R-flexplot: both "polynomial" and "quadratic" are degree-2 OLS.
+        X = np.column_stack([np.ones_like(x_arr), x_arr, x_arr ** 2])
+        model = OLS(y_arr, X).fit()
+        link_label = "polynomial (degree-2)"
+    elif method == "cubic":
         X = np.column_stack([np.ones_like(x_arr), x_arr, x_arr ** 2, x_arr ** 3])
         model = OLS(y_arr, X).fit()
-        link_label = "polynomial (degree-3)"
+        link_label = "cubic (degree-3)"
     elif method == "logistic":
         # Validate binary {0, 1}; fall back to OLS with a warning if not.
         unique_y = np.unique(y_arr[~np.isnan(y_arr)])
@@ -1301,31 +2231,68 @@ def _add_parametric_smooth(
                 UserWarning,
                 stacklevel=3,
             )
-            # Linear OLS fallback: degree-1 in x (intercept + x). The eval
-            # matrix below uses the same shape.
-            X = np.column_stack([np.ones_like(x_arr), x_arr])
+            X = sm.add_constant(x_arr)
             model = OLS(y_arr, X).fit()
             link_label = "OLS fallback (logistic requires binary y)"
         else:
-            import statsmodels.api as _sm
-            X = _sm.add_constant(x_arr)
-            model = _sm.GLM(
-                y_arr, X, family=_sm.families.Binomial(link=_sm.families.links.Logit())
+            X = sm.add_constant(x_arr)
+            model = sm.GLM(
+                y_arr, X, family=sm.families.Binomial(link=sm.families.links.Logit())
             ).fit()
             link_label = "logistic (logit)"
+    elif method == "rlm":
+        X = sm.add_constant(x_arr)
+        model = sm.RLM(y_arr, X, M=sm.robust.norms.HuberT()).fit()
+        link_label = "rlm (Huber)"
+    elif method == "poisson":
+        X = sm.add_constant(x_arr)
+        if np.any(y_arr < 0):
+            warnings.warn(
+                f"method='poisson' requires a non-negative outcome; {y!r} has "
+                f"negative values. Falling back to OLS.",
+                UserWarning,
+                stacklevel=3,
+            )
+            model = OLS(y_arr, X).fit()
+            link_label = "OLS fallback (poisson requires non-negative y)"
+        else:
+            model = sm.GLM(
+                y_arr, X, family=sm.families.Poisson(link=sm.families.links.Log())
+            ).fit()
+            link_label = "poisson (log)"
+    elif method == "Gamma":
+        X = sm.add_constant(x_arr)
+        if np.any(y_arr <= 0):
+            warnings.warn(
+                f"method='Gamma' requires a strictly positive outcome; {y!r} has "
+                f"non-positive values. Falling back to OLS.",
+                UserWarning,
+                stacklevel=3,
+            )
+            model = OLS(y_arr, X).fit()
+            link_label = "OLS fallback (Gamma requires positive y)"
+        else:
+            model = sm.GLM(
+                y_arr, X,
+                family=sm.families.Gamma(link=sm.families.links.InversePower()),
+            ).fit()
+            link_label = "Gamma (inverse)"
     else:  # pragma: no cover — guarded by caller
         return p
 
     x_eval = np.linspace(np.nanmin(x_arr), np.nanmax(x_arr), num=200)
 
-    if method in {"polynomial", "cubic"}:
-        # OLS degree-3 design matrix: intercept + x + x^2 + x^3.
+    # Build the corresponding evaluation design matrix.
+    if method in {"quadratic", "polynomial"}:
+        X_eval = np.column_stack([np.ones_like(x_eval), x_eval, x_eval ** 2])
+    elif method == "cubic":
         X_eval = np.column_stack(
             [np.ones_like(x_eval), x_eval, x_eval ** 2, x_eval ** 3]
         )
-    else:  # logistic (binary GLM) and logistic (OLS degree-1 fallback): both use intercept + x.
-        import statsmodels.api as _sm
-        X_eval = _sm.add_constant(x_eval)
+    else:
+        # logistic, rlm, poisson, Gamma (and logistic OLS fallback) are all
+        # linear-in-x models: intercept + x.
+        X_eval = sm.add_constant(x_eval)
 
     yhat_eval = np.asarray(model.predict(X_eval))
 
@@ -1353,11 +2320,22 @@ def _add_parametric_smooth(
             lower = frame["mean_ci_lower"].to_numpy()
             upper = frame["mean_ci_upper"].to_numpy()
         except Exception:
-            # Fallback: normal-approx CI on the linear predictor.
-            se = getattr(model, "bse", None)
-            residual_std = float(np.sqrt(model.mse_resid)) if hasattr(model, "mse_resid") else 1.0
-            lower = yhat_eval - z * residual_std
-            upper = yhat_eval + z * residual_std
+            # Fallback: normal-approx CI using the model's parameter covariance.
+            # For RLM, get_prediction() is not available, so we compute
+            # Var(x' beta) = diag(X_eval @ Cov(beta) @ X_eval').
+            cov_params = getattr(model, "cov_params", None)
+            if cov_params is not None:
+                try:
+                    var = np.einsum("ij,jk,ik->i", X_eval, cov_params(), X_eval)
+                    se = np.sqrt(var)
+                except Exception:
+                    se = np.full(len(yhat_eval), np.nan)
+            else:
+                se = np.full(len(yhat_eval), np.nan)
+            # Guard degenerate SE (e.g., perfect fit); draw a flat band.
+            finite_se = np.where(np.isfinite(se), se, 0.0)
+            lower = yhat_eval - z * finite_se
+            upper = yhat_eval + z * finite_se
 
         ribbon_df[f"__lower_{lvl}"] = lower
         ribbon_df[f"__upper_{lvl}"] = upper

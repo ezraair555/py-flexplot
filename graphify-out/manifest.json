@@ -1,0 +1,177 @@
+{
+  "pyproject.toml": {
+    "mtime": 1785218409.298337,
+    "ast_hash": "f17cf82dab883b8107be52dea8fd113c",
+    "semantic_hash": "f17cf82dab883b8107be52dea8fd113c"
+  },
+  "src/pyflexplot/__init__.py": {
+    "mtime": 1782006777.9980154,
+    "ast_hash": "9e5ab289c28f89d02cbf05f034b52fb0",
+    "semantic_hash": "9e5ab289c28f89d02cbf05f034b52fb0"
+  },
+  "src/pyflexplot/core.py": {
+    "mtime": 1782006985.6586263,
+    "ast_hash": "4599327162826dbf902faa20ecd7cd1f",
+    "semantic_hash": "4599327162826dbf902faa20ecd7cd1f"
+  },
+  "src/pyflexplot/ebbr.py": {
+    "mtime": 1782006917.4439728,
+    "ast_hash": "1c804f65aa6cc3973ea50d18364c71d2",
+    "semantic_hash": "1c804f65aa6cc3973ea50d18364c71d2"
+  },
+  "src/pyflexplot/sem.py": {
+    "mtime": 1782006931.088314,
+    "ast_hash": "1a6bbcbcec101330019baccf59c73e6d",
+    "semantic_hash": "1a6bbcbcec101330019baccf59c73e6d"
+  },
+  "src/pyflexplot/stats.py": {
+    "mtime": 1782006938.1453545,
+    "ast_hash": "0e7699796a94b5ef84705ce9eca9f534",
+    "semantic_hash": "0e7699796a94b5ef84705ce9eca9f534"
+  },
+  "tests/test_core.py": {
+    "mtime": 1782006981.9216049,
+    "ast_hash": "6033808a156b7126cb8e4b4c03df870a",
+    "semantic_hash": "6033808a156b7126cb8e4b4c03df870a"
+  },
+  "tests/test_ebbr.py": {
+    "mtime": 1782006960.2454813,
+    "ast_hash": "ccf946588f96b43b4d5b5708cead9801",
+    "semantic_hash": "ccf946588f96b43b4d5b5708cead9801"
+  },
+  "tests/test_formula_edge_cases_2026_06_21.py": {
+    "mtime": 1782086261.316336,
+    "ast_hash": "46a80d49cc6cced425db1d28ccb5a5aa",
+    "semantic_hash": "46a80d49cc6cced425db1d28ccb5a5aa"
+  },
+  "tests/test_sem.py": {
+    "mtime": 1782006955.2434525,
+    "ast_hash": "9bb79aabc714d49fb488fdf7b351f636",
+    "semantic_hash": "9bb79aabc714d49fb488fdf7b351f636"
+  },
+  "tests/test_stats.py": {
+    "mtime": 1782006964.8695076,
+    "ast_hash": "f219e1b3aee9fa6ea9618c9bc20beb41",
+    "semantic_hash": "f219e1b3aee9fa6ea9618c9bc20beb41"
+  },
+  ".github/workflows/python-app.yml": {
+    "mtime": 1782006777.9950004,
+    "ast_hash": "cea0df538cd466f4f27b88fd49dd5cc3",
+    "semantic_hash": "cea0df538cd466f4f27b88fd49dd5cc3"
+  },
+  "AGENTS.md": {
+    "mtime": 1782006792.4715114,
+    "ast_hash": "0de22dd4ff3921772e965fdea9169c9c",
+    "semantic_hash": "0de22dd4ff3921772e965fdea9169c9c"
+  },
+  "HEARTBEAT.md": {
+    "mtime": 1782006792.5155115,
+    "ast_hash": "86c8a1a8d728a7eec4e0843d363d04e8",
+    "semantic_hash": "86c8a1a8d728a7eec4e0843d363d04e8"
+  },
+  "IDENTITY.md": {
+    "mtime": 1782006792.4865115,
+    "ast_hash": "5a2c256cf07897d07195639d9efec936",
+    "semantic_hash": "5a2c256cf07897d07195639d9efec936"
+  },
+  "README.md": {
+    "mtime": 1782007001.936719,
+    "ast_hash": "3b3d914d7ad70c55558264641db386de",
+    "semantic_hash": "3b3d914d7ad70c55558264641db386de"
+  },
+  "SOUL.md": {
+    "mtime": 1782006792.4745114,
+    "ast_hash": "8263e278a75be62b07d6291346bd7554",
+    "semantic_hash": "8263e278a75be62b07d6291346bd7554"
+  },
+  "TOOLS.md": {
+    "mtime": 1782006792.4805114,
+    "ast_hash": "981c7c92a546f836030f8a43a80c8bb2",
+    "semantic_hash": "981c7c92a546f836030f8a43a80c8bb2"
+  },
+  "USER.md": {
+    "mtime": 1782006792.5135117,
+    "ast_hash": "332f691dcdbc0f1d55a69ebc588941b3",
+    "semantic_hash": "332f691dcdbc0f1d55a69ebc588941b3"
+  },
+  "docs/api/core.md": {
+    "mtime": 1782006777.9952443,
+    "ast_hash": "f1c00fc74867b2d36f71d5c875a9dea8",
+    "semantic_hash": "f1c00fc74867b2d36f71d5c875a9dea8"
+  },
+  "docs/api/ebbr.md": {
+    "mtime": 1782006777.9953048,
+    "ast_hash": "9b265335ff035f766c62cf8eb26b2d0d",
+    "semantic_hash": "9b265335ff035f766c62cf8eb26b2d0d"
+  },
+  "docs/api/sem.md": {
+    "mtime": 1782006777.9953048,
+    "ast_hash": "3cebccc2e7118ff5673e7492d217e648",
+    "semantic_hash": "3cebccc2e7118ff5673e7492d217e648"
+  },
+  "docs/api/stats.md": {
+    "mtime": 1782006777.9953048,
+    "ast_hash": "d2beea76ddce1a49a483734e0c919c1e",
+    "semantic_hash": "d2beea76ddce1a49a483734e0c919c1e"
+  },
+  "docs/examples/titanic.md": {
+    "mtime": 1782006777.9964266,
+    "ast_hash": "95df150f25481d8d648300380760f1af",
+    "semantic_hash": "95df150f25481d8d648300380760f1af"
+  },
+  "docs/index.md": {
+    "mtime": 1782006777.9964266,
+    "ast_hash": "ef15a53d89e62d46466dbc81748b9736",
+    "semantic_hash": "ef15a53d89e62d46466dbc81748b9736"
+  },
+  "docs/reference/add_ebb_estimate.md": {
+    "mtime": 1782006777.9964266,
+    "ast_hash": "2c137832d085b6ee659cfc0a91ca116f",
+    "semantic_hash": "2c137832d085b6ee659cfc0a91ca116f"
+  },
+  "docs/reference/fit_beta_prior.md": {
+    "mtime": 1782006777.9974298,
+    "ast_hash": "fc000b15c8e099cf1b2cba0e335e8d89",
+    "semantic_hash": "fc000b15c8e099cf1b2cba0e335e8d89"
+  },
+  "docs/reference/flexplot.md": {
+    "mtime": 1782006777.9974298,
+    "ast_hash": "8b8186bd3ad67900ec6f4a8a6a2ae1a2",
+    "semantic_hash": "8b8186bd3ad67900ec6f4a8a6a2ae1a2"
+  },
+  "docs/reference/hopper_plot.md": {
+    "mtime": 1782006777.9974298,
+    "ast_hash": "fbb639fef9e251f8ba879c42e8156633",
+    "semantic_hash": "fbb639fef9e251f8ba879c42e8156633"
+  },
+  "docs/reference/index.md": {
+    "mtime": 1782006777.9974298,
+    "ast_hash": "0a8d4e2e376e52340eaa7b3955935dd4",
+    "semantic_hash": "0a8d4e2e376e52340eaa7b3955935dd4"
+  },
+  "docs/reference/model_comparison.md": {
+    "mtime": 1782006777.9974298,
+    "ast_hash": "3dfc19efb1a7bbd59fc5531fce980b86",
+    "semantic_hash": "3dfc19efb1a7bbd59fc5531fce980b86"
+  },
+  "docs/reference/visualize.md": {
+    "mtime": 1782006777.9974298,
+    "ast_hash": "d9727eea3fdfab46ff4f3c3420577791",
+    "semantic_hash": "d9727eea3fdfab46ff4f3c3420577791"
+  },
+  "docs/assets/titanic/plot1_class.png": {
+    "mtime": 1782006777.9954357,
+    "ast_hash": "2545a1464172867f928b686a940e2b32",
+    "semantic_hash": "2545a1464172867f928b686a940e2b32"
+  },
+  "docs/assets/titanic/plot2_sex.png": {
+    "mtime": 1782006777.9961152,
+    "ast_hash": "c40cf715436d9e30bbdbd59d28c0c9df",
+    "semantic_hash": "c40cf715436d9e30bbdbd59d28c0c9df"
+  },
+  "docs/assets/titanic/plot3_age.png": {
+    "mtime": 1782006777.9964266,
+    "ast_hash": "3b9cc060556d91a814978ea9c2c264c1",
+    "semantic_hash": "3b9cc060556d91a814978ea9c2c264c1"
+  }
+}

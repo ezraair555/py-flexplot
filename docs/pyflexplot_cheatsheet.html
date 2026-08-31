@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>py-flexplot :: Python Cheatsheet</title>
+<style>
+  @page { size: A3 landscape; margin: 8mm; }
+  html, body { height: 100%; overflow: hidden; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 9px; line-height: 1.4; color: #333; width: 397mm; }
+  .header { background: #1a1a2e; color: white; padding: 8px 14px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .header h1 { font-size: 15px; font-weight: 700; }
+  .header .subtitle { font-size: 9px; opacity: .8; }
+  .header .py-badge { background: #27ae60; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+  .columns { display: flex; gap: 6px; }
+  .col { flex: 1; background: white; border-radius: 4px; padding: 8px 10px; border: 1px solid #ddd; min-width: 0; }
+  .col h2 { font-size: 10px; font-weight: 700; color: #1a1a2e; border-bottom: 2px solid #27ae60; padding-bottom: 3px; margin-bottom: 6px; }
+  .col h3 { font-size: 9px; font-weight: 700; color: #e74c3c; margin-top: 8px; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .3px; }
+  .section { margin-bottom: 7px; padding-bottom: 5px; border-bottom: 1px solid #f0f0f0; }
+  .section:last-child { border-bottom: none; }
+  code { background: #f4f4f4; padding: 1px 3px; border-radius: 2px; font-family: "Courier New", monospace; font-size: 7.5px; color: #c0392b; }
+  .example { background: #f8f9fa; border-left: 3px solid #27ae60; padding: 4px 6px; margin: 4px 0; font-family: monospace; font-size: 7.5px; white-space: pre-wrap; word-wrap: break-word; }
+  .formula { background: #fef9e7; border: 1px solid #f9e79f; padding: 4px 6px; margin: 4px 0; font-family: monospace; font-size: 8px; border-radius: 2px; white-space: pre-wrap; word-wrap: break-word; }
+  .sig { background: #eaf2f8; border-left: 3px solid #2980b9; padding: 3px 6px; margin: 3px 0; font-family: monospace; font-size: 7.5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 7.5px; }
+  th { background: #ecf0f1; padding: 2px 4px; text-align: left; font-weight: 700; }
+  td { padding: 2px 4px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  .badge { display: inline-block; background: #27ae60; color: white; padding: 1px 4px; border-radius: 8px; font-size: 7px; font-weight: 700; }
+  .badge-torch { background: #e67e22; }
+  .badge-keras { background: #d35400; }
+  .badge-sm { background: #2980b9; }
+  .note { background: #eaf2f8; padding: 3px 6px; border-radius: 2px; margin: 3px 0; font-size: 7.5px; }
+  .footer { background: #1a1a2e; color: white; padding: 6px 14px; border-radius: 4px; font-size: 7.5px; margin-top: 6px; display: flex; justify-content: space-between; }
+  p { margin: 2px 0; }
+  .import { font-weight: 700; color: #27ae60; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>py-flexplot :: Python Cheatsheet</h1>
+    <div class="subtitle">Intelligent formula-based visualization — port of Dustin Fife's R package · powered by plotnine + statsmodels</div>
+  </div>
+  <div style="text-align:right;">
+    <span class="py-badge">Python</span>
+    <div style="font-size:8px; opacity:.7; margin-top:2px;">v0.3.0 · Updated: 2026-08</div>
+  </div>
+</div>
+
+<div class="columns">
+
+<!-- COL 1: BASICS -->
+<div class="col">
+  <h2>Basics</h2>
+
+  <div class="section">
+    <h3>Install</h3>
+    <div class="example">pip install git+https://github.com/
+  ezraair555/py-flexplot.git
+
+# Optional backends for flex_nn:
+pip install torch
+pip install "keras[jax]"</div>
+  </div>
+
+  <div class="section">
+    <h3>Import</h3>
+    <div class="example">from pyflexplot import (
+    flexplot, visualize,
+    compare_fits, added_plot,
+)
+from pyflexplot.stats import (
+    model_comparison, estimates,
+    p_format, eliminated_columns,
+    color_table,
+)
+from pyflexplot.bluepill import (
+    estimate_sd, mixed_model
+)
+from pyflexplot.ebbr import (
+    fit_beta_prior, add_ebb_estimate
+)
+from pyflexplot.sem import (
+    hopper_plot, disturbance_plot,
+    measurement_plot,
+)
+from pyflexplot.flex_nn import (
+    NeuralNetFit, permutation_importance
+)</div>
+  </div>
+
+  <div class="section">
+    <h3>Formula Syntax</h3>
+    <div class="formula">"outcome ~ predictor + color | panel_col + panel_row"</div>
+    <table>
+      <tr><th>Component</th><th>Role</th></tr>
+      <tr><td><code>outcome</code></td><td>Y-axis (must be numeric for most plots)</td></tr>
+      <tr><td><code>predictor</code></td><td>X-axis variable</td></tr>
+      <tr><td><code>color</code></td><td>2nd predictor → color/group</td></tr>
+      <tr><td><code>|</code></td><td>Separator for paneling</td></tr>
+      <tr><td><code>panel_col</code></td><td>1st given → column facets</td></tr>
+      <tr><td><code>panel_row</code></td><td>2nd given → row facets</td></tr>
+    </table>
+    <div class="note">Formula is a <b>string</b> in Python (not R formula object). Max 2 given vars.</div>
+  </div>
+
+  <div class="section">
+    <h3>flexplot() Signature</h3>
+    <div class="sig">flexplot(formula: str, data: pd.DataFrame,
+       method: str = "auto", **kwargs)</div>
+    <table>
+      <tr><th>method</th><th>Smoothing</th></tr>
+      <tr><td><code>"auto"</code></td><td>LM (default)</td></tr>
+      <tr><td><code>"lm"</code></td><td>Linear regression line</td></tr>
+      <tr><td><code>"loess"</code></td><td>Local polynomial smooth</td></tr>
+    </table>
+    <div class="note">Binary 0/1 outcome → binomial GLM auto-selected. Invalid method → <code>ValueError</code>.</div>
+  </div>
+
+  <div class="section">
+    <h3>Quick Examples</h3>
+    <div class="example">import pandas as pd
+df = pd.read_csv("data.csv")
+
+# Scatterplot with panels
+p = flexplot("y ~ x + z | g1 + g2",
+             data=df, method="lm")
+p.draw()</div>
+    <div class="example"># Intercept-only → histogram
+p = flexplot("y ~ 1", data=df)</div>
+    <div class="example"># Categorical × numeric
+p = flexplot("satisfaction ~ gender",
+             data=df)</div>
+    <div class="note">Returns a <code>plotnine.ggplot</code> object. Call <code>.draw()</code> to render in a notebook. Extend with <code>+</code> and any plotnine layer.</div>
+  </div>
+</div>
+
+<!-- COL 2: MODEL VIZ -->
+<div class="col">
+  <h2>Model Visualization</h2>
+
+  <div class="section">
+    <h3>visualize() — Fitted Models</h3>
+    <div class="sig">visualize(model, data=None, **kwargs)</div>
+    <p>Auto-generates predicted-vs-actual plot from any model with <code>.predict()</code>.</p>
+    <table>
+      <tr><th>Backend</th><th>Models</th></tr>
+      <tr><td><span class="badge badge-sm">statsmodels</span></td><td>OLS, GLM, any with <code>predict()</code></td></tr>
+      <tr><td><span class="badge badge-sm">sklearn</span></td><td>Any regressor with <code>predict()</code></td></tr>
+      <tr><td><span class="badge badge-torch">torch</span></td><td><code>NeuralNetFit</code> wrappers</td></tr>
+      <tr><td><span class="badge badge-keras">keras</span></td><td><code>NeuralNetFit</code> wrappers</td></tr>
+    </table>
+    <div class="example">import statsmodels.formula.api as smf
+
+mod = smf.ols("y ~ x1 + x2", data=df).fit()
+p = visualize(mod)
+p.draw()
+
+# With explicit data
+p = visualize(mod, data=test_df, x="x1")</div>
+    <div class="note">If <code>data=None</code>, extracts from <code>model.model.data</code>. Pass <code>x=</code> to choose the x-axis predictor.</div>
+  </div>
+
+  <div class="section">
+    <h3>compare_fits() — Model Comparison</h3>
+    <div class="sig">compare_fits(formula, data, model1, model2,
+         labels=["Model 1", "Model 2"], **kwargs)</div>
+    <div class="example">m1 = smf.ols("y ~ x", data=df).fit()
+m2 = smf.ols("y ~ x + z", data=df).fit()
+p = compare_fits("y ~ x", data=df,
+                 model1=m1, model2=m2,
+                 labels=["Reduced", "Full"])
+p.draw()</div>
+    <div class="note">Overlays both models' predictions on the same scatter. Blue = model1, red = model2.</div>
+  </div>
+
+  <div class="section">
+    <h3>added_plot() — Partial Regression</h3>
+    <div class="sig">added_plot(formula, data, **kwargs)</div>
+    <p>Residualizes Y and X on other predictors, plots residuals against each other.</p>
+    <div class="example">p = added_plot(
+    "y ~ x1 + x2 + x3 | group",
+    data=df)
+p.draw()</div>
+    <div class="note">Uses <code>statsmodels.OLS</code> internally. If no other predictors, falls back to <code>flexplot()</code>.</div>
+  </div>
+
+  <div class="section">
+    <h3>Automatic Plot Selection</h3>
+    <table>
+      <tr><th>Y type</th><th>X type</th><th>Geom</th></tr>
+      <tr><td>numeric</td><td>numeric</td><td>scatter + smooth</td></tr>
+      <tr><td>numeric</td><td>categorical</td><td>jitter + mean CI</td></tr>
+      <tr><td>binary 0/1</td><td>numeric</td><td>GLM binomial smooth</td></tr>
+      <tr><td>categorical</td><td>categorical</td><td>jittered scatter</td></tr>
+      <tr><td>numeric</td><td>None (~1)</td><td>histogram</td></tr>
+    </table>
+    <div class="note">Color variable → <code>aes(color=, group=)</code> added to all geoms.</div>
+  </div>
+</div>
+
+<!-- COL 3: NEURAL NETS + STATS -->
+<div class="col">
+  <h2>Neural Networks & Stats</h2>
+
+  <div class="section">
+    <h3>NeuralNetFit — Wrapper Class</h3>
+    <div class="sig">NeuralNetFit(model, response_var: str,
+     predictor_names: List[str],
+     backend: str = "torch")</div>
+    <p>Wraps a <code>torch.nn.Module</code> or <code>keras.Model</code> for use in <code>visualize()</code> and <code>compare_fits()</code>.</p>
+    <div class="example">import torch
+from pyflexplot.flex_nn import NeuralNetFit
+
+net = torch.nn.Sequential(
+    torch.nn.Linear(3, 8),
+    torch.nn.ReLU(),
+    torch.nn.Linear(8, 1)
+).eval()
+
+fit = NeuralNetFit(
+    model=net,
+    response_var="y",
+    predictor_names=["x1", "x2", "x3"]
+)
+
+# Use like any model
+p = visualize(fit, data=df)
+p = compare_fits("y ~ x1", df, m1, fit)</div>
+  </div>
+
+  <div class="section">
+    <h3>permutation_importance()</h3>
+    <div class="sig">permutation_importance(fit, X, y,
+    metric=None, n_repeats=1,
+    random_state=None,
+    higher_is_better=None)</div>
+    <p>Column-shuffling variable importance. Returns a DataFrame ranked by importance.</p>
+    <div class="example">result = permutation_importance(
+    fit, X=df[["x1","x2","x3"]],
+    y=df["y"],
+    metric="mse"
+)
+print(result.sort_values(
+    "importance", ascending=False))</div>
+    <table>
+      <tr><th>metric</th><th>Scoring</th></tr>
+      <tr><td><code>"mse"</code> / <code>"loss"</code></td><td>Mean squared error</td></tr>
+      <tr><td><code>"r2"</code></td><td>R-squared</td></tr>
+      <tr><td><code>"auc"</code></td><td>Rank-based AUC</td></tr>
+      <tr><td><code>"accuracy"</code></td><td>Classification accuracy</td></tr>
+      <tr><td><code>"precision"</code> / <code>"recall"</code> / <code>"f1"</code></td><td>Binary metrics</td></tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <h3>Biostats Utilities (fifer)</h3>
+    <div class="sig">model_comparison(model1, model2)
+estimates(model)
+p_format(p, digits=3)
+eliminated_columns(df, threshold=0.5)
+color_table(df, cmap="viridis")</div>
+    <div class="example">m1 = smf.ols("y ~ x1", data=df).fit()
+m2 = smf.ols("y ~ x1 + x2", data=df).fit()
+model_comparison(m1, m2)
+
+estimates(m2)
+p_format(0.0341, digits=3)  # "p = .034"
+eliminated_columns(df, threshold=0.8)
+color_table(df.corr(), cmap="coolwarm")</div>
+  </div>
+
+  <div class="section">
+    <h3>SEM Visualization (semopy)</h3>
+    <div class="sig">hopper_plot(model, **kwargs)
+disturbance_plot(model, var1, var2, data)
+measurement_plot(model, latent_var, indicator, data)</div>
+    <div class="example">from semopy import Model
+mod = Model("F1 =~ x1 + x2 + x3")
+mod.fit(df)
+hopper_plot(mod).draw()
+disturbance_plot(mod, "F1", "F2", df)
+measurement_plot(mod, "F1", "x1", df)</div>
+  </div>
+</div>
+
+<!-- COL 4: BLUEPILL + EBBR + REFERENCE -->
+<div class="col">
+  <h2>Bluepill & Empirical Bayes</h2>
+
+  <div class="section">
+    <h3>mixed_model() — Synthetic Data</h3>
+    <div class="sig">mixed_model(fixed, random, sigma, clusters,
+     n_per, vars, interactions=None,
+     polynomials=None, seed=None) -> pd.DataFrame</div>
+    <div class="example">from pyflexplot import mixed_model
+
+df = mixed_model(
+    fixed=[0.0, 0.2, 0.5, 0.3, 0.2],
+    random=[0.1, 0.1, 0.0, 0.2, 0.1],
+    sigma=0.3,
+    clusters=15,
+    n_per=[11, 3],
+    vars={
+        "depression":  (10.0, 3.0, 0),
+        "stress":       (22.0, 7.0, 0),
+        "life_events":  ["no", "yes"],
+        "ses":           (55.0, 15.0, 0),
+        "therapist":     [f"Dr. {chr(65+i)}"
+                         for i in range(15)],
+    },
+    interactions={
+        "stress": ["depression", "ses",
+                   {"from": 0.1, "to": 0.5,
+                    "coef": 0.3}],
+    },
+    polynomials={
+        "depression": {"from": 1, "coef": 0.05},
+    },
+    seed=42,
+)</div>
+    <table>
+      <tr><th>Parameter</th><th>Type</th></tr>
+      <tr><td><code>fixed</code></td><td>Fixed effects coefficients</td></tr>
+      <tr><td><code>random</code></td><td>Random effect SDs</td></tr>
+      <tr><td><code>vars</code></td><td>Dict: name → (mean, sd, 0) or [levels]</td></tr>
+      <tr><td><code>clusters</code></td><td>Number of clusters</td></tr>
+      <tr><td><code>n_per</code></td><td>Rows per cluster</td></tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <h3>estimate_sd() — Recover SD</h3>
+    <div class="sig">estimate_sd(mean, min_val, max_val,
+         num_sds=3) -> float</div>
+    <div class="example">sd = estimate_sd(mean=100, min_val=70,
+           max_val=130, num_sds=3)
+# sd = 10.0</div>
+  </div>
+
+  <div class="section">
+    <h3>Empirical Bayes (ebbr)</h3>
+    <div class="sig">fit_beta_prior(successes, totals,
+           method="mle")
+add_ebb_estimate(df, success_col,
+           total_col, prior=None)</div>
+    <div class="example">prior = fit_beta_prior(
+    successes=df["hits"],
+    totals=df["at_bats"])
+
+df = add_ebb_estimate(
+    df, "hits", "at_bats",
+    prior=prior)</div>
+    <p>Returns a BetaPrior with <code>.alpha</code> and <code>.beta</code>. <code>add_ebb_estimate</code> adds posterior mean and credible intervals to the DataFrame.</p>
+  </div>
+
+  <div class="section">
+    <h3>Module Map</h3>
+    <table>
+      <tr><th>Module</th><th>Functions</th></tr>
+      <tr><td><code>core.py</code></td><td>flexplot, visualize, compare_fits, added_plot</td></tr>
+      <tr><td><code>stats.py</code></td><td>model_comparison, estimates, p_format, eliminated_columns, color_table</td></tr>
+      <tr><td><code>sem.py</code></td><td>hopper_plot, disturbance_plot, measurement_plot</td></tr>
+      <tr><td><code>flex_nn.py</code></td><td>NeuralNetFit, permutation_importance</td></tr>
+      <tr><td><code>bluepill.py</code></td><td>estimate_sd, mixed_model</td></tr>
+      <tr><td><code>ebbr.py</code></td><td>fit_beta_prior, add_ebb_estimate</td></tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <h3>Testing & CI</h3>
+    <table>
+      <tr><th>Workflow</th><th>Covers</th></tr>
+      <tr><td><code>python-app.yml</code></td><td>Core (3.10–3.13, no optional deps)</td></tr>
+      <tr><td><code>torch.yml</code></td><td>torch flex_nn tests (weekly)</td></tr>
+      <tr><td><code>keras3.yml</code></td><td>keras[jax] tests (weekly)</td></tr>
+    </table>
+    <div class="note">164 tests total. Optional backend tests <code>importorskip</code> cleanly.</div>
+  </div>
+</div>
+
+</div>
+
+<div class="footer">
+  <span>py-flexplot · github.com/ezraair555/py-flexplot · Based on Dustin Fife's flexplot R package</span>
+  <span>plotnine + statsmodels + torch/keras · v0.3.0 · Updated: 2026-08</span>
+</div>
+
+</body>
+</html>

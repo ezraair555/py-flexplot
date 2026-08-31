@@ -102,6 +102,27 @@ def test_flexplot_intercept_only():
     assert isinstance(p, ggplot)
 
 
+def test_flexplot_intercept_only_plot_types():
+    """Intercept-only formulas support histogram/qq/density/boxplot/violin."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"y": rng.normal(size=80)})
+    for pt in ("histogram", "qq", "density", "boxplot", "violin"):
+        p = flexplot("y ~ 1", data=df, plot_type=pt)
+        assert isinstance(p, ggplot)
+        p.draw()
+
+
+def test_flexplot_intercept_only_categorical_y_bar_chart():
+    """Intercept-only with a categorical y produces a bar chart (R parity)."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"y": rng.choice(["a", "b", "c"], size=80)})
+    p = flexplot("y ~ 1", data=df)
+    assert isinstance(p, ggplot)
+    layer_types = [layer.geom.__class__.__name__ for layer in p.layers]
+    assert "geom_bar" in layer_types
+    p.draw()
+
+
 def test_flexplot_empty_data():
     df = pd.DataFrame({"y": [], "x": []})
     with pytest.raises(ValueError, match="non-empty"):

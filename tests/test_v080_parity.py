@@ -205,17 +205,21 @@ def test_flexplot_spread_accepts_r_tokens():
 
 
 def test_flexplot_method_rlm_and_glm():
-    """method='rlm' and 'glm' route through the numeric smoother."""
+    """method='rlm', 'poisson', and 'Gamma' route through the parametric smoother."""
     rng = np.random.default_rng(0)
     df = pd.DataFrame({
         "x": rng.normal(size=80),
         "y": rng.normal(size=80),
     })
-    for method_value in ("rlm", "glm"):
+    for method_value in ("rlm", "poisson", "Gamma"):
         p = flexplot("y ~ x", data=df, method=method_value)
         assert isinstance(p, ggplot)
         types = [l.geom.__class__.__name__ for l in p.layers]
-        assert "geom_smooth" in types
+        assert "geom_line" in types
+        assert "geom_ribbon" in types
+    # 'glm' is not an R-flexplot method string; it should be rejected.
+    with pytest.raises(ValueError, match="method must be one of"):
+        flexplot("y ~ x", data=df, method="glm")
 
 
 def test_flexplot_jitter_bool_and_vector():
@@ -244,10 +248,14 @@ def test_flexplot_jitter_false_uses_points_not_jitter():
 
 
 def test_flexplot_jitter_invalid_raises():
-    """jitter=[0.1] (wrong length) raises ValueError."""
+    """jitter length>2 raises ValueError (R ``match_jitter_categorical``).
+
+    Length-1 jitter is now VALID (R maps ``jitter=c(.1)`` to ``(width=.1,
+    height=0)``); only length>2 sequences raise.
+    """
     df = pd.DataFrame({"x": ["a", "b"] * 5, "y": np.random.normal(size=10)})
     with pytest.raises(ValueError, match="jitter must be"):
-        flexplot("y ~ x", data=df, jitter=[0.1])
+        flexplot("y ~ x", data=df, jitter=[0.1, 0.0, 0.0])
 
 
 def test_flexplot_raw_data_false_hides_points():
