@@ -134,6 +134,34 @@ def test_ghost_line_invalid_raises():
         flexplot("y ~ x", data=df, ghost_line="neon")
 
 
+def test_ghost_line_slope1_adds_geom_abline():
+    """ghost_line='slope1' adds a diagonal slope=1 reference (geom_abline)."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"x": rng.normal(size=30), "y": rng.normal(size=30)})
+    p = flexplot("y ~ x", data=df, ghost_line="slope1")
+    layer_types = [layer.geom.__class__.__name__ for layer in p.layers]
+    # geom_abline is the diagonal reference. (plotnine's geom_abline
+    # class name is 'geom_abline' on most versions.)
+    assert "geom_abline" in layer_types
+
+
+def test_ghost_line_slope1_does_not_add_geom_hline():
+    """ghost_line='slope1' should NOT add a horizontal hline (it's diagonal)."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"x": rng.normal(size=30), "y": rng.normal(size=30)})
+    p = flexplot("y ~ x", data=df, ghost_line="slope1")
+    layer_types = [layer.geom.__class__.__name__ for layer in p.layers]
+    assert "geom_hline" not in layer_types
+
+
+def test_ghost_line_slope1_invalid_value_raises():
+    """ghost_line='diagonal' (not a recognized token) raises ValueError."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"x": rng.normal(size=30), "y": rng.normal(size=30)})
+    with pytest.raises(ValueError, match="ghost_line must be"):
+        flexplot("y ~ x", data=df, ghost_line="diagonal")
+
+
 # ---------------------------------------------------------------------------
 # plot_type
 # ---------------------------------------------------------------------------

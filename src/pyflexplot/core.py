@@ -551,9 +551,11 @@ def flexplot(
         Subsample N rows for the plotnine layers (scatter / jitter) while
         keeping the smoother fits on the full DataFrame. No-op when
         ``N >= len(data)``. Deterministic via ``np.random.default_rng(0)``.
-    ghost_line : {"red", "dashed", None}, default None
-        Reference line drawn at y=0 after the main layers. ``"red"`` for a
-        solid red threshold; ``"dashed"`` for a black dashed reference.
+    ghost_line : {"red", "dashed", "slope1", None}, default None
+        Reference line drawn after the main layers. ``"red"`` for a solid
+        red threshold at y=0; ``"dashed"`` for a black dashed reference
+        at y=0; ``"slope1"`` for a diagonal slope=1 reference line for
+        prediction-vs-observed overlays (v0.7.3+).
     plot_type : {"scatter", "line", "boxplot", "bar", None}, default None
         Explicit geom override. Bypasses the auto-dispatch.
     return_data : bool, default False
@@ -923,14 +925,22 @@ def flexplot(
     # Both are drawn as geom_hline (horizontal), so they're 1D references
     # at y=0. For diagonal references (slope=1), future work.
     if ghost_line is not None:
-        if ghost_line not in {"red", "dashed"}:
+        if ghost_line not in {"red", "dashed", "slope1"}:
             raise ValueError(
-                f"ghost_line must be 'red', 'dashed', or None; got {ghost_line!r}."
+                f"ghost_line must be 'red', 'dashed', 'slope1', or None; "
+                f"got {ghost_line!r}."
             )
         if ghost_line == "red":
             p += geom_hline(yintercept=0, color="red")
         elif ghost_line == "dashed":
             p += geom_hline(yintercept=0, color="black", linetype="dashed")
+        elif ghost_line == "slope1":
+            # Diagonal slope=1 reference line for prediction-vs-observed
+            # plots. R-flexplot draws this for ghost.line="dashed" on
+            # visualize(); we expose it under a separate value so the
+            # legacy "dashed" semantics (horizontal) aren't broken.
+            from plotnine import geom_abline
+            p += geom_abline(intercept=0, slope=1, color="black", linetype="dashed")
 
     # --- Optional ghost.reference overlay (v0.6.6+) ---
     # R-flexplot accepts ghost.reference as a DataFrame to overlay on the

@@ -92,7 +92,7 @@ The Python signature is `(DataFrame, p_value)` — a 2-tuple. R's
 | Feature | Status | Notes |
 |---|---|---|
 | R², adj.R², sigma, n | ✅ | v0.6.3+. |
-| R² confidence interval | ⚠️ | Returns `None`; non-central-F inversion is v0.7.0. |
+| R² confidence interval | ⚠️ → ✅ | ✅ (v0.7.3+) | Olkin & Finn 1995 non-central-F inversion. Population R² CI is now a real tuple (was `None` placeholder since v0.6.3). |
 | Coefficient table (estimate / SE / t / p / CI) | ✅ | v0.6.3+. |
 | Standardized betas | ✅ | v0.6.3+. |
 | Semi-partial R² | ✅ | Computed via reduced-model fits. |

@@ -2,7 +2,7 @@
 
 from .core import flexplot, visualize, compare_fits, added_plot
 from .quality import diagnose, format_summary
-from .stats import model_comparison, estimates, p_format, eliminated_columns, color_table
+from .stats import model_comparison, estimates, eta_squared, p_format, eliminated_columns, color_table
 from .ebbr import fit_beta_prior, add_ebb_estimate
 from .sem import hopper_plot, disturbance_plot, measurement_plot
 from .bluepill import estimate_sd, mixed_model
@@ -21,6 +21,7 @@ __all__ = [
     # fifer / fifer2 (biostatistics)
     "model_comparison",
     "estimates",
+    "eta_squared",
     "p_format",
     "eliminated_columns",
     "color_table",

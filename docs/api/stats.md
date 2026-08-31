@@ -71,7 +71,7 @@ A `dict` with the following keys (v0.6.3+):
 | `adj.r.squared` | float | OLS adjusted R². |
 | `sigma` | float | Residual standard error. |
 | `n` | int | Number of observations used. |
-| `r.squared.ci` | tuple or None | R² confidence interval. Currently always `None`; non-central-F inversion is v0.7.0. |
+| `r.squared.ci` | tuple or None | R² confidence interval (Olkin & Finn 1995 non-central-F inversion, v0.7.3+). Real interval, no longer a placeholder. |
 | `coef` | DataFrame | `estimate`, `std.error`, `t`, `p.value`, `ci.lower`, `ci.upper` per coefficient. |
 | `standardized` | Series | Standardized betas per predictor: `b_j * sd(x_j) / sd(y)`. |
 | `semi.p.r2` | Series | Semi-partial R² per predictor, computed via reduced-model fits. |
@@ -91,6 +91,37 @@ print(report["coef"])
 print(report["standardized"])
 print(report["semi.p.r2"])
 ```
+
+---
+
+## `eta_squared` (v0.7.3+)
+
+Partial eta-squared (η²_p) for a fitted OLS model, with a confidence
+interval via the same non-central-F inversion that powers
+`estimates()["r.squared.ci"]`. Port of R's `sjstats::eta_sq()` /
+`fifer::eta_squared()`.
+
+```python
+from pyflexplot import eta_squared
+df = eta_squared(ols_model)        # one-row DataFrame indexed by "model"
+df = eta_squared(ols_model, level=0.90)   # custom CI level
+```
+
+### Returns
+A `pandas.DataFrame` with one row (`"model"`) and columns:
+- `eta_sq` (float): partial eta-squared, `(F * df1) / (F * df1 + df2)`.
+- `eta_sq_ci_low` (float | None): CI lower bound (None if degenerate).
+- `eta_sq_ci_high` (float | None): CI upper bound (None if degenerate).
+- `F` (float): the model's overall F-statistic.
+
+### Notes
+- statsmodels' OLS exposes a single model-F, not per-term Fs. So
+  `eta_squared()` returns one row indexed by `"model"`, not one row
+  per predictor. For per-predictor semi-partial R² (a related but
+  distinct quantity), use `estimates()["semi.p.r2"]`.
+- η²_p can exceed R² when predictors are correlated; it estimates the
+  variance in y explained by *each* predictor after controlling for
+  the others.
 
 ---
 

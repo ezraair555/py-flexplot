@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent highlights
 
+- **0.7.3** — `estimates()` returns a real R² confidence interval via non-central-F inversion (was `None` placeholder in v0.6.x); new `eta_squared()` for partial eta-squared; `ghost_line="slope1"` adds a diagonal slope=1 reference for prediction-vs-observed overlays.
 - **0.7.0** — `flexplot()` gains `interaction_model=True` for non-parallel slopes per color group when the formula uses R-style interaction syntax (`*` or `:`). Closes the largest semantic gap in the v0.6.2 R-audit.
 - **0.6.7** — New `pyflexplot.ml.RFAdapter` lets scikit-learn estimators (random forests, gradient boosting, any `.predict()`-bearing estimator) participate in `compare_fits()` alongside statsmodels fits. Documentation honesty pass: README + `docs/index.md` + `docs/api/core.md` + `docs/api/stats.md` now reflect what's actually in the package; new `docs/api/coverage.md` gives a per-feature matrix vs the R packages.
 - **0.6.6** — `flexplot()` gains `ghost.reference` (DataFrame overlay for reference scatter or prediction line), `plot.string` (label override dict), and `related` (no-op on Python side; plotnine already shares scales by default).
@@ -19,6 +20,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **0.5.0** — New `overlay=` parameter on `flexplot()` for multi-smoother comparison.
 - **0.4.0** — First-class uncertainty layer on `flexplot()` (`uncertainty=`, `level=`, `bands=`); new `pyflexplot.uncertainty` module.
 - **0.3.0** — `visualize()` accepts `NeuralNetFit` wrappers; formula parser validation hardened.
+
+## [0.7.3] - 2026-08-31
+
+### Added
+
+- **Real R² confidence interval in `estimates()`** — `_r_squared_ci()`
+  now uses non-central-F inversion (Olkin & Finn, 1995) to compute the
+  CI for the population R². Replaces the `None` placeholder documented
+  since v0.6.3. Method:
+  - Compute observed F statistic = (R²/k) / ((1-R²)/(n-k-1)).
+  - Invert the noncentral F upper-tail survival function at α/2 and
+    1-α/2 to find λ at each tail.
+  - Recover ρ² via ρ² = λ / (n + λ).
+  - scipy's `ncf.sf` returns a buggy negative value at `nc=0` on some
+    versions; the implementation falls back to `f.sf` (central F) when
+    nc=0.
+  - Boundary cases: R² near 1 collapses the upper bound to 1; R² near
+    0 collapses the lower bound to 0.
+
+- **`eta_squared()` on the top-level package** — partial eta-squared
+  (η²_p) for a fitted OLS model, with a per-model CI via the same
+  non-central-F inversion. Returns a one-row DataFrame indexed by
+  `"model"` (statsmodels' OLS exposes a single model-F, not per-term;
+  for per-predictor semi-partial R², use `estimates()` instead). Port of
+  R's `sjstats::eta_sq()` / `fifer::eta_squared()`.
+
+- **`ghost_line="slope1"`** on `flexplot()` — adds a diagonal slope=1
+  reference line via `geom_abline(intercept=0, slope=1)` for prediction-
+  vs-observed overlays. The legacy `"dashed"` semantics (horizontal
+  reference at y=0) are preserved.
+
+### Tests
+
+- 13 new tests in `tests/test_r_squared_ci.py` covering: validation
+  (negative R², R² ≥ 1, invalid df, too few obs), output shape, the
+  observed-R²-inside-CI property, CI narrows with larger n, CI widens
+  with more predictors, parametric coverage tests across 3 seeds
+  (population R² inside the CI), and integration with `estimates()`.
+- 9 new tests in `tests/test_eta_squared.py` covering: shape, columns,
+  unit-interval value, exact formula match, CI contains point estimate,
+  input validation, and cross-validation with `_r_squared_ci`.
+- 3 new tests in `tests/test_flexplot_extras.py` for `ghost_line=
+  "slope1"`: layer adds `geom_abline`, doesn't add `geom_hline`, and
+  invalid values raise `ValueError`.
+
+### Documentation
+
+- Docstring for `flexplot()` updates `ghost_line` accepted values.
+- CHANGELOG: this entry.
+- Coverage matrix (`docs/api/coverage.md`): nothing changes — these
+  are v0.7.0 candidates we'd flagged earlier.
 
 ## [0.7.0] - 2026-08-31
 
