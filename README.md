@@ -163,6 +163,25 @@ All workflows upload coverage via `pytest-cov`.
 
 ## Changelog
 
+`README.md` now includes a concise release log. The canonical full history
+remains in [`CHANGELOG.md`](CHANGELOG.md).
+
+### 0.8.1 (2026-08-31)
+- Added formula-function transformations in `flexplot()` (`log(x)`, `sqrt(x)`, `exp(x)`, `poly(x, 2)`, `I(...)`) with a safe whitelisted evaluator.
+- Added multivariate numeric slotting parity for `y ~ x1 + x2` / `y ~ x1 + x2 | g` by auto-binning slot-2+/given numeric variables into `<var>_binned`.
+- Added R-style defaults/parity behavior: categorical-vs-numeric alpha defaults, categorical jitter semantics, and low-cardinality numeric auto-categorization (`<5` unique).
+- Added explicit R-style `compare_fits()` compatibility args (`report_se`, `re`, `num_points`, `clusters`) with transparent no-op warning.
+- Added `third_eye()` placeholder endpoint (exported in package API) that raises `NotImplementedError` with guidance.
+- Added/updated parity tests; test suite status at release: `509 passed, 4 skipped`.
+
+### 0.8.0 (2026-08-31)
+- Implemented the major parity batch from the v0.8.0 review:
+  - Non-nested `model_comparison()` support and `pred_difference`.
+  - `estimates()` factor-level tables + mean differences.
+  - `added_plot()` R semantics alignment.
+  - R spread tokens/defaults, `ghost_line` panel semantics, and standalone accessors.
+- Included release cleanup (`.gitignore` hardening and parity script addition).
+
 ### 0.6.2 (2026-08-30)
 - **R-style interaction syntax accepted by the formula parser.** `y ~ x*z` and `y ~ x:z` no longer raise "missing column"; the parser expands `*` to `+` + `:` for column lookup and preserves interaction terms in `all_x`. `flexplot()` emits a `UserWarning` reminding the user that v0.6.x fits remain additive; v0.7.0 will add `interaction_model=True`. 6 new tests in `tests/test_core.py`.
 
