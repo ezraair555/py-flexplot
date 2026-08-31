@@ -1,6 +1,11 @@
 # py-flexplot: Documentation
 
-Welcome to the unified Python port of Dustin Fife's R statistical ecosystem. This package brings the power of `flexplot`, `fifer`, `flexplavaan`, and `ebbr` to Python, optimized for the "grammar of graphics" via `plotnine`.
+Welcome to the Python port of Dustin Fife's R statistical ecosystem. This package brings the power of `flexplot`, `fifer`, `flexplavaan`, and `ebbr` to Python, optimized for the "grammar of graphics" via `plotnine`.
+
+> **Note on coverage:** This is a *partial* port, not a 1:1 translation. The
+> R-flexplot surface that translates cleanly onto `plotnine` + `statsmodels`
+> is implemented; some R-only features are deferred or unsupported. See
+> **[Coverage vs R-flexplot](api/coverage.md)** for the full matrix.
 
 ## Modules
 
@@ -42,6 +47,17 @@ Generate clustered mixed-model data with fixed + random effects,
 interactions, and polynomial terms.  Ideal for teaching and demos.
 - `mixed_model(fixed, random, sigma, clusters, n_per, vars)`
 - `estimate_sd(mean, min, max, num_sds=3)`
+
+### 7. [Machine-Learning Adapters (ml)](api/ml.md)
+Thin adapters so scikit-learn estimators (`RandomForestRegressor`,
+`RandomForestClassifier`, and any estimator with `.predict()`) can be
+used with `compare_fits()` and the rest of the visualization surface.
+- `RFAdapter(estimator, response_var, predictor_names)`
+- `make_rf_adapter(estimator, data, response_var, predictor_names=None)`
+
+> **Optional dependency:** scikit-learn is **not** declared in py-flexplot's
+> `pyproject.toml` — install it separately when you want to use this
+> module.
 
 ---
 

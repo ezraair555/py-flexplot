@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent highlights
 
+- **0.6.7** — New `pyflexplot.ml.RFAdapter` lets scikit-learn estimators (random forests, gradient boosting, any `.predict()`-bearing estimator) participate in `compare_fits()` alongside statsmodels fits. Documentation honesty pass: README + `docs/index.md` + `docs/api/core.md` + `docs/api/stats.md` now reflect what's actually in the package; new `docs/api/coverage.md` gives a per-feature matrix vs the R packages.
 - **0.6.6** — `flexplot()` gains `ghost.reference` (DataFrame overlay for reference scatter or prediction line), `plot.string` (label override dict), and `related` (no-op on Python side; plotnine already shares scales by default).
 - **0.6.5** — `flexplot()` gains `sample` (subsample rows for plotting, full data still used for fits), `ghost_line` ("red" or "dashed" reference line), `plot_type` override ("scatter", "line", "boxplot", "bar"), and `return_data` (returns `{"plot", "data"}` instead of just plot). Closes the remaining easy-wins from the v0.6.x R-audit.
 - **0.6.4** — `flexplot()` gains `bins` / `labels` / `breaks` (numeric-x auto-discretization, R-flexplot parity), `spread` (stdev/range/iqr/ci/no dispersion markers), and `method='polynomial'` / `'cubic'` / `'logistic'` parametric smoothers. Closes the auto-bin gap from the v0.6.2 R-audit.
@@ -17,6 +18,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **0.5.0** — New `overlay=` parameter on `flexplot()` for multi-smoother comparison.
 - **0.4.0** — First-class uncertainty layer on `flexplot()` (`uncertainty=`, `level=`, `bands=`); new `pyflexplot.uncertainty` module.
 - **0.3.0** — `visualize()` accepts `NeuralNetFit` wrappers; formula parser validation hardened.
+
+## [0.6.7] - 2026-08-31
+
+### Added
+
+- **`pyflexplot.ml.RFAdapter`** — thin wrapper so any scikit-learn
+  estimator (random forests, gradient boosting, plain linear regression)
+  can be used with `compare_fits()` and the rest of py-flexplot's
+  visualization API. Carries the predictor-names metadata that
+  `compare_fits()` needs to build evaluation DataFrames.
+  - `RFAdapter(estimator, response_var, predictor_names)` — primary API.
+  - `make_rf_adapter(estimator, data, response_var, predictor_names=None)` — convenience
+    constructor that infers predictor names from a DataFrame.
+  - Methods: `.predict(X)` (DataFrame or ndarray), `.predict_df(data)`
+    (returns a single-column DataFrame named `pred_<response_var>`).
+  - scikit-learn is **not** a declared dependency of py-flexplot; the
+    adapter raises a clear `ImportError` if sklearn is missing. Tests
+    `pytest.importorskip("sklearn")` so the test suite stays green without
+    sklearn.
+  - Documented in [`docs/api/ml.md`](docs/api/ml.md).
+
+- **Documentation honesty pass.** The README and docs previously described
+  py-flexplot as a "Python port of R's flexplot" without acknowledging
+  partial coverage. The package is now described honestly:
+  - **README** — new "What's covered (and what isn't)" section with
+    high-level coverage matrix and links to `coverage.md`.
+  - **docs/index.md** — new top-level banner pointing to
+    [`coverage.md`](docs/api/coverage.md).
+  - **docs/api/coverage.md** — new file: per-feature coverage matrix vs
+    R-flexplot / fifer / flexplavaan, with explicit ✅ / ⚠️ / ❌ markers
+    and notes on what's out-of-scope (mixed-effects via `lme4` /
+    `statsmodels.MixedLM` mismatch; full SEM fitting; sklearn is an
+    optional dep).
+  - **docs/api/stats.md** — `model_comparison` signature now reflects
+    the v0.6.3+ return shape (AIC / BIC / LogLik / R² / adj.R² /
+    BayesFactor); new `estimates()` and `compare_fits()` sections
+    document the v0.6.3 additions.
+  - **docs/api/core.md** — extended parameter docs for v0.6.4–v0.6.6
+    additions (`bins` / `labels` / `breaks`, `spread`,
+    `sample` / `ghost_line` / `plot_type` / `return_data`,
+    `ghost_reference` / `plot_string` / `related`); new `visualize`
+    section with `plot='model' | 'residuals' | 'all'`; new examples
+    block exercising the new params.
+
+### Tests
+
+- 12 new tests in `tests/test_ml_adapter.py` covering construction,
+  DataFrame / ndarray prediction alignment, classifier support,
+  integration with `compare_fits()`, and the
+  `make_rf_adapter` convenience constructor.
 
 ## [0.6.6] - 2026-08-31
 

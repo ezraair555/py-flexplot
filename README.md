@@ -1,10 +1,22 @@
 # py-flexplot
 
-A Python port of Dustin Fife's [`flexplot`](https://github.com/dustinfife/flexplot) and related R packages (`fifer`, `flexplavaan`, etc.).
+A **partial** Python port of Dustin Fife's [`flexplot`](https://github.com/dustinfife/flexplot) and related R packages (`fifer`, `flexplavaan`, `ebbr`, `bluepill`).
 
 `py-flexplot` provides intelligent data visualization using a formula-based syntax, similar to the original R implementation but powered by `plotnine` for a consistent "grammar of graphics" look and feel in Python.
 
 ![Titanic Example](docs/assets/titanic/plot2_sex.png)
+
+## What's covered (and what isn't)
+
+This is **not** a 1:1 port. The Python port covers the parts of R's `flexplot` and friends that translate cleanly onto `plotnine` + `statsmodels`; some R-only features are deferred or unsupported. See [`docs/api/coverage.md`](docs/api/coverage.md) for the full coverage matrix vs the R packages. Highlights:
+
+- ✅ `flexplot()` core dispatch + `bins` / `breaks` / `labels` (auto-bin), `spread`, `overlay`, `uncertainty` (CI / prediction / bootstrap), `ghost_line` / `ghost_reference`, `plot.string`, `plot_type` override, `sample`, `return_data`.
+- ✅ `model_comparison()` (AIC / BIC / R² / adj.R² / **Bayes factor**), `estimates()` (structured effect-size reporter), `compare_fits()` (with `return_preds` / `pred_type`).
+- ✅ `visualize()` with `plot='model' | 'residuals' | 'all'`.
+- ✅ `diagnose()` (missingness, Cook's D, Ramsey RESET, Breusch-Pagan).
+- ⚠️ R-style interaction syntax (`y ~ x*z`) is parsed but the fit remains additive — v0.7.0 will add `interaction_model=True` for non-parallel slopes.
+- ✅ `randomForest` (and any sklearn estimator with `.predict()`) — use `pyflexplot.ml.RFAdapter` to wrap a fitted estimator and pass it to `compare_fits()`. See [`docs/api/ml.md`](docs/api/ml.md).
+- ❌ Mixed-effects models (`lme4` / `glmer`) are not ported; `statsmodels.MixedLM` is not a drop-in for `lme4`. See [`docs/api/coverage.md`](docs/api/coverage.md) for the plan.
 
 ## Included R Packages
 - **flexplot**: Intelligent multivariate graphics via formulas.
@@ -12,6 +24,7 @@ A Python port of Dustin Fife's [`flexplot`](https://github.com/dustinfife/flexpl
 - **flexplavaan**: Visualizing latent variable models (SEM).
 - **flex_nn**: Neural-network visualization wrappers. **torch** is the default backend; **Keras 3** is supported transparently via the same `NeuralNetFit` class. Drop any `torch.nn.Module` or `keras.Model` (Sequential, Functional, or subclassed) into `compare_fits()` alongside statsmodels fits.
 - **bluepill**: Synthetic mixed-model data generator. `mixed_model(...)` produces clustered data with fixed and random effects, interactions, and polynomial terms.
+- **ml** (Python-native, no R analog): Adapters so scikit-learn estimators (`RandomForestRegressor`, `RandomForestClassifier`, and any estimator with `.predict()`) can be used with `compare_fits()`. Optional — requires `pip install scikit-learn`.
 
 ## Installation
 

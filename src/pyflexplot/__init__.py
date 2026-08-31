@@ -7,6 +7,7 @@ from .ebbr import fit_beta_prior, add_ebb_estimate
 from .sem import hopper_plot, disturbance_plot, measurement_plot
 from .bluepill import estimate_sd, mixed_model
 from . import flex_nn
+from . import ml
 
 __all__ = [
     # flexplot (core visualization)
@@ -35,4 +36,6 @@ __all__ = [
     "mixed_model",
     # flex_nn (neural-network integration)
     "flex_nn",
+    # ml (sklearn / random-forest adapters)
+    "ml",
 ]

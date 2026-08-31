@@ -17,7 +17,7 @@ p = flexplot(formula, data, method="auto", uncertainty="ci", level=0.95)
   - `panel`: (Optional) Variables after `|` used for faceting (row/column panels).
   - **R-style interaction syntax** (v0.6.2+): `y ~ x*z` expands to `y ~ x + z + x:z` for column lookup; `y ~ x:z` is also accepted. Numeric binary `[0, 1]` y routes to the binomial GLM branch (v0.6.1+). See [Interactions](#interactions) below.
 - **data** (pd.DataFrame): The dataset to plot.
-- **method** (str): The smoothing method for the numeric-vs-numeric branch. Options: `"auto"`, `"lm"` (linear model), `"loess"` (locally weighted regression).
+- **method** (str): The smoothing method for the numeric-vs-numeric branch. Options: `"auto"`, `"lm"` (linear model), `"loess"` (locally weighted regression), `"polynomial"` / `"cubic"` (degree-3 OLS in x, v0.6.4+), `"logistic"` (GLM with logit link on numeric binary y, v0.6.4+).
 - **uncertainty** (str, v0.4.0+): `{None, "ci", "prediction", "bootstrap"}`, default `"ci"`. Type of uncertainty band around the fitted line.
   - `None`: no fit, just the scatter.
   - `"ci"`: confidence interval on the mean response (plotnine built-in).
@@ -26,13 +26,25 @@ p = flexplot(formula, data, method="auto", uncertainty="ci", level=0.95)
 - **level** (float, v0.4.0+): Coverage probability for a single band, default `0.95`. Ignored when `bands` is given.
 - **bands** (list of float, v0.4.0+): Nested coverage levels (e.g., `[0.5, 0.8, 0.95]`) for Tufte-style multi-ribbon display. Overrides `level` when provided.
 - **overlay** (list, v0.5.0+): Additional smoothers to overlay on the same axes. Each entry is a method name (`"lm"`, `"loess"`, `"rlm"`, ...) or a dict with `method`, `color`, `label`, `uncertainty`, `level`. See [Overlay](#overlay) below.
+- **bins** (int, v0.6.4+): Discretize a numeric x into `bins` equal-width intervals before plotting. Routes to the discrete-style summary branch (geom_jitter + spread marker). Mutually exclusive with `breaks` (which wins with a `UserWarning`).
+- **labels** (list of str, v0.6.4+): Custom labels for the discrete x levels produced by `bins` / `breaks`. Length must equal `bins` or `len(breaks) - 1`.
+- **breaks** (list of float, v0.6.4+): Explicit cut points for numeric-x binning. Takes precedence over `bins` when both are given.
+- **spread** ({None, "ci", "stdev", "range", "iqr", "no"}, v0.6.4+): Dispersion marker for the discrete-x branch. `None` (default) preserves the legacy bootstrap CI; `"stdev"` / `"range"` / `"iqr"` use a pointrange; `"no"` omits the summary.
+- **sample** (int, v0.6.5+): Subsample N rows for the plotnine layers; smoother fits still see the full DataFrame. No-op when `N >= len(data)`. Deterministic via `np.random.default_rng(0)`.
+- **ghost_line** ({None, "red", "dashed"}, v0.6.5+): Reference `geom_hline` at y=0. `"red"` for a solid red threshold; `"dashed"` for a black dashed reference.
+- **plot_type** ({None, "scatter", "line", "boxplot", "bar"}, v0.6.5+): Explicit geom override. Bypasses the auto-dispatch.
+- **return_data** (bool, v0.6.5+): When `True`, returns `{"plot": ggplot, "data": DataFrame}` instead of just the plot.
+- **ghost_reference** (pd.DataFrame, v0.6.6+): Reference dataset to overlay. Two patterns detected by column shape: `(x, y)` → gray geom_point (reference scatter); `(x, "pred")` → red dashed geom_line (prediction line).
+- **plot_string** (dict, v0.6.6+): Override axis/legend labels. Accepts keys `x`, `y`, `title`, `subtitle`, `caption`, `color`.
+- **related** (bool, v0.6.6+): R-flexplot's panel-linking flag. Currently a no-op on the Python side (plotnine already shares scales by default); accepted for R-parity, rejected if non-bool.
 
 ### Intelligent Mapping
-- **Numeric y ~ Numeric x**: Scatterplot + trend line.
-- **Numeric y ~ Categorical x**: Jittered dot plot + bootstrapped means/CIs.
-- **Numeric binary `[0, 1]` y ~ Numeric x** (v0.6.1+): Scatterplot + binomial GLM (logistic curve) — even when y is `int`/`float`, the binary pre-check routes to the binomial branch.
+- **Numeric y ~ Numeric x**: Scatterplot + trend line. Smoother controlled by `method` (`"auto"` / `"lm"` / `"loess"` / `"polynomial"` / `"cubic"` / `"logistic"`).
+- **Numeric y ~ Categorical x**: Jittered dot plot + dispersion marker (bootstrap CI by default; `spread` controls the marker type).
+- **Numeric binary `[0, 1]` y ~ Numeric x** (v0.6.1+): Scatterplot + binomial GLM (logistic curve) — even when y is `int`/`float`, the binary pre-check routes to the binomial branch. Explicit `method="logistic"` bypasses this and uses the parametric branch.
 - **Non-numeric y ~ Numeric x** (e.g., string `["yes","no"]`): Scatterplot + binomial GLM.
 - **Categorical y ~ Categorical x**: Jittered dot plot of counts.
+- **Auto-binned numeric x** (v0.6.4+): When `bins` or `breaks` is given, numeric x is discretized via `pd.cut` and the discrete-x branch applies.
 
 ### Examples
 
@@ -61,6 +73,40 @@ flexplot(
 
 # Disable the fit (scatter only).
 flexplot("y ~ x", data=df, uncertainty=None)
+
+# Polynomial fit on a non-linear signal.
+flexplot(
+    "y ~ x", data=df.assign(y=lambda d: d["x"] ** 2 + rng.normal(scale=0.3, size=200)),
+    method="polynomial",
+)
+
+# Auto-bin a numeric predictor into 4 equal-width groups (v0.6.4+).
+df2 = pd.DataFrame({
+    "x": rng.uniform(0, 100, size=200),
+    "y": rng.normal(size=200),
+})
+flexplot("y ~ x", data=df2, bins=4)
+
+# Use stdev as the dispersion marker (v0.6.4+).
+flexplot("y ~ x", data=df2, bins=4, spread="stdev")
+
+# Subsample a large dataset for rendering (v0.6.5+).
+flexplot("y ~ x", data=df2, sample=50)
+
+# Get both the plot and the data (v0.6.5+).
+result = flexplot("y ~ x", data=df, return_data=True)
+result["plot"].save("plot.png")
+print(result["data"].head())
+
+# Overlay a reference dataset (v0.6.6+).
+ref = pd.DataFrame({"x": np.linspace(-3, 3, 20), "pred": np.linspace(-3, 3, 20) ** 2})
+flexplot("y ~ x", data=df, ghost_reference=ref)
+
+# Override labels (v0.6.6+).
+flexplot(
+    "y ~ x", data=df,
+    plot_string={"x": "Predictor (s)", "y": "Response (V)", "title": "Experiment 1"},
+)
 ```
 
 ### <a name="overlay"></a>Overlay
@@ -98,6 +144,35 @@ The v0.6.x fit remains **additive** (parallel slopes per color group). A
 `UserWarning` is emitted whenever `*` or `:` appears in the formula so users
 aren't misled. v0.7.0 will add `interaction_model=True` for true non-parallel
 slopes.
+
+---
+
+## `visualize` (v0.6.3+)
+
+Visualize a fitted model's predictions and residuals.
+
+```python
+from pyflexplot import visualize
+
+# Predicted-vs-observed scatter (default).
+result = visualize(formula, data, model)
+# {"plot": ggplot, ...}
+
+# Residual plots: returns a dict of two ggplots.
+residuals = visualize(formula, data, model, plot="residuals")
+# {"rvf": ggplot, "hist": ggplot}  (residual-vs-fitted + histogram)
+
+# All-in-one layout (cowplot if available, else dict).
+all_plots = visualize(formula, data, model, plot="all")
+```
+
+| `plot=` | Returns | Notes |
+|---|---|---|
+| `"model"` (default) | `{"plot": ggplot}` | Predicted-vs-observed scatter + fitted line. |
+| `"residuals"` | `{"rvf": ggplot, "hist": ggplot}` | Residual-vs-fitted (geom_hline at y=0) + residual histogram. |
+| `"all"` | `cowplot`-joined 2-column layout, or dict `{"model", "rvf", "hist"}` if cowplot isn't installed | Always useful even when cowplot is missing. |
+
+Raises `ValueError` for unknown `plot=` values.
 
 ---
 
