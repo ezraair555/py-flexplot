@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent highlights
 
+- **0.6.5** — `flexplot()` gains `sample` (subsample rows for plotting, full data still used for fits), `ghost_line` ("red" or "dashed" reference line), `plot_type` override ("scatter", "line", "boxplot", "bar"), and `return_data` (returns `{"plot", "data"}` instead of just plot). Closes the remaining easy-wins from the v0.6.x R-audit.
 - **0.6.4** — `flexplot()` gains `bins` / `labels` / `breaks` (numeric-x auto-discretization, R-flexplot parity), `spread` (stdev/range/iqr/ci/no dispersion markers), and `method='polynomial'` / `'cubic'` / `'logistic'` parametric smoothers. Closes the auto-bin gap from the v0.6.2 R-audit.
 - **0.6.3** — `model_comparison()` now exposes Bayes factor + adj.R²; `compare_fits()` gains `return_preds` + `pred_type`; `estimates()` is a real structured effect-size reporter (R², sigma, coef DataFrame, standardized betas, semi-partial R², factors/numbers split); `visualize()` accepts `plot='residuals'` / `'all'`.
 - **0.6.2** — R-style interaction syntax (`y ~ x*z`, `y ~ x:z`) accepted by the formula parser; `flexplot()` emits a `UserWarning` when interaction syntax is present (v0.7.0 will add `interaction_model=True` for non-parallel slopes).
@@ -15,6 +16,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **0.5.0** — New `overlay=` parameter on `flexplot()` for multi-smoother comparison.
 - **0.4.0** — First-class uncertainty layer on `flexplot()` (`uncertainty=`, `level=`, `bands=`); new `pyflexplot.uncertainty` module.
 - **0.3.0** — `visualize()` accepts `NeuralNetFit` wrappers; formula parser validation hardened.
+
+## [0.6.5] - 2026-08-31
+
+### Added
+
+- **`sample: int`** on `flexplot()` — subsample N rows for the plotnine layers
+  only; the smoother fits still see the full DataFrame. Deterministic via
+  `np.random.default_rng(0)`. Useful for very large datasets where the
+  scatter layer is the bottleneck but the fit should remain robust.
+  Validation: rejects non-int (except bool), values < 1, and silently
+  no-ops when `sample >= len(data)`.
+
+- **`ghost_line: {"red", "dashed", None}`** on `flexplot()` — adds a
+  reference `geom_hline` at y=0 after the main layers. `"red"` is a solid
+  red reference (R-flexplot uses this for y=0 thresholds); `"dashed"` is
+  a black dashed reference (R-flexplot uses this for prediction-vs-
+  observed slope=1 references, though we only emit the horizontal at y=0
+  for now; diagonal slope=1 is a v0.7.0 todo).
+
+- **`plot_type: {"scatter", "line", "boxplot", "bar", None}`** override on
+  `flexplot()` — bypasses the auto-dispatch and forces a specific geom.
+  Useful when:
+  - the auto-dispatch picks the wrong branch (e.g. 11 unique x values
+    rather than the 10 cut-off so the discrete branch isn't taken);
+  - the user knows they want a boxplot regardless of how x is shaped;
+  - a publication requires a specific plot style.
+  Implementation: short-circuits the dispatch chain via a `skip_dispatch`
+  boolean. Validation rejects unknown values.
+
+- **`return_data: bool`** on `flexplot()` — when `True`, returns
+  `{"plot": ggplot, "data": DataFrame}` instead of just the ggplot.
+  Useful for downstream tooling that wants both the rendered plot and the
+  actual data that was plotted (especially when combined with `sample=`
+  to know which rows were subsampled). Both return points (intercept-only
+  and main path) honor this.
+
+### Tests
+
+- 20 new tests in `tests/test_flexplot_extras.py` covering all four new
+  params, including validation, interaction (return_data + sample =
+  subsampled dict), and backward compat (defaults preserve legacy
+  behavior).
 
 ## [0.6.4] - 2026-08-31
 

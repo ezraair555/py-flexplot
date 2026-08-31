@@ -14,6 +14,8 @@ from plotnine import (
     geom_line,
     geom_ribbon,
     geom_hline,
+    geom_boxplot,
+    geom_bar,
     stat_summary,
     facet_wrap,
     facet_grid,
@@ -479,6 +481,10 @@ def flexplot(
     labels: Optional[List[str]] = None,
     breaks: Optional[List[float]] = None,
     spread: Optional[str] = None,
+    sample: Optional[int] = None,
+    ghost_line: Optional[str] = None,
+    plot_type: Optional[str] = None,
+    return_data: bool = False,
     **kwargs,
 ):
     """Intelligent multivariate graphics via formulas.
@@ -537,6 +543,19 @@ def flexplot(
         - ``"range"``: min-max range.
         - ``"iqr"``: Q1-Q3 IQR.
         - ``"no"``: no summary layer at all.
+    sample : int, optional
+        Subsample N rows for the plotnine layers (scatter / jitter) while
+        keeping the smoother fits on the full DataFrame. No-op when
+        ``N >= len(data)``. Deterministic via ``np.random.default_rng(0)``.
+    ghost_line : {"red", "dashed", None}, default None
+        Reference line drawn at y=0 after the main layers. ``"red"`` for a
+        solid red threshold; ``"dashed"`` for a black dashed reference.
+    plot_type : {"scatter", "line", "boxplot", "bar", None}, default None
+        Explicit geom override. Bypasses the auto-dispatch.
+    return_data : bool, default False
+        When ``True``, return ``{"plot": ggplot, "data": DataFrame}``
+        instead of just the plot. Useful with ``sample=`` to know which
+        rows were plotted.
     **kwargs
         Reserved for future extension.
 
@@ -643,11 +662,35 @@ def flexplot(
     given = variables["given"]
     intercept_only = variables.get("intercept_only", False)
 
+    # --- Optional subsampling (v0.6.5+) ---
+    # When ``sample=N`` is set and N < len(data), subsample to N rows for
+    # plotting only. Subsequent smoother fits still use the FULL data so the
+    # fit isn't degraded by the subsample. We track ``_sampled_df`` for
+    # return_data= so the caller knows which rows were plotted.
+    if sample is not None:
+        if not isinstance(sample, int) or isinstance(sample, bool):
+            raise TypeError(
+                f"sample must be an int >= 1; got {type(sample).__name__} ({sample!r})."
+            )
+        if sample < 1:
+            raise ValueError(f"sample must be >= 1; got {sample}.")
+    if sample is not None and sample < len(data):
+        rng_sample = np.random.default_rng(0)  # deterministic for reproducibility
+        sampled_idx = rng_sample.choice(len(data), size=sample, replace=False)
+        sampled_idx = np.sort(sampled_idx)
+        plot_input_df = data.iloc[sampled_idx].reset_index(drop=True)
+        fit_input_df = data  # full data; smoother fits unchanged
+    else:
+        plot_input_df = data
+        fit_input_df = data
+
     if intercept_only:
         # Intercept-only: show a univariate distribution of y.
-        p = ggplot(data, aes(x=y)) + geom_histogram(bins=30)
+        p = ggplot(plot_input_df, aes(x=y)) + geom_histogram(bins=30)
         p += labs(title=f"Distribution of {y}")
         p += theme_bw()
+        if return_data:
+            return {"plot": p, "data": plot_input_df}
         return p
 
     # Reject 3+ given variables: the formula parser accepts them but only
@@ -673,19 +716,19 @@ def flexplot(
     #   breaks, or len = bins when provided with bins.
     # Mutual precedence: breaks > bins (breaks overrides bins when both set).
     # Validation lives in _validate_binning_params.
-    if not _is_discrete(data[x]) and pd.api.types.is_numeric_dtype(data[x]):
-        _validate_binning_params(bins, labels, breaks, data[x])
+    if not _is_discrete(plot_input_df[x]) and pd.api.types.is_numeric_dtype(plot_input_df[x]):
+        _validate_binning_params(bins, labels, breaks, plot_input_df[x])
         plot_df, x_discretized = _maybe_bin_numeric_x(
-            data, x, bins=bins, labels=labels, breaks=breaks
+            plot_input_df, x, bins=bins, labels=labels, breaks=breaks
         )
         if x_discretized:
             is_x_discrete = True
         else:
-            plot_df = data.copy()
+            plot_df = plot_input_df.copy()
             is_x_discrete = False
     else:
-        plot_df = data.copy()
-        is_x_discrete = _is_discrete(data[x])
+        plot_df = plot_input_df.copy()
+        is_x_discrete = _is_discrete(plot_input_df[x])
         # Convert numeric discrete X to string/categorical so plotnine treats x-axis as discrete levels
         if is_x_discrete and pd.api.types.is_numeric_dtype(plot_df[x]):
             plot_df[x] = plot_df[x].astype(str)
@@ -701,7 +744,7 @@ def flexplot(
     y_is_binary = False
     if is_y_numeric and method not in {"logistic"}:
         try:
-            unique_y = pd.Series(data[y].dropna().astype(float)).unique()
+            unique_y = pd.Series(plot_input_df[y].dropna().astype(float)).unique()
         except (ValueError, TypeError):
             unique_y = None
         y_is_binary = (
@@ -717,20 +760,47 @@ def flexplot(
         aes_kwargs["group"] = color
     p = ggplot(plot_df, aes(**aes_kwargs))
 
+    # --- Optional plot_type override (v0.6.5+) ---
+    # Bypasses the auto-dispatch and forces a specific geom. Useful when
+    # the user knows they want a boxplot regardless of how x is shaped, or
+    # when the auto-dispatch picks the wrong branch because the data
+    # violates heuristics (e.g. 11 unique values in x rather than 10).
+    if plot_type is not None:
+        _VALID_PLOT_TYPES = {"scatter", "line", "boxplot", "bar"}
+        if plot_type not in _VALID_PLOT_TYPES:
+            raise ValueError(
+                f"plot_type must be one of {sorted(_VALID_PLOT_TYPES)}; got {plot_type!r}."
+            )
+        if plot_type == "scatter":
+            p += geom_point(alpha=0.5)
+        elif plot_type == "line":
+            p += geom_line()
+        elif plot_type == "boxplot":
+            p += geom_boxplot()
+        elif plot_type == "bar":
+            # plotnine's geom_bar doesn't accept fun=; use stat_summary
+            # with fun_y=np.mean + geom="bar" to get a bar chart of
+            # group means per x level.
+            p += stat_summary(fun_y=np.mean, geom="bar")
+        # Skip the auto-dispatch below.
+        skip_dispatch = True
+    else:
+        skip_dispatch = False
+
     # Determine plot type.
     # Order matters:
     #   1. Binary 0/1 y must be detected before the generic numeric branch
     #      (otherwise int/float [0, 1] y falls into LM/loess).
     #   2. Numeric X is "discrete" when _is_discrete() returns True (numeric
     #      with <=10 unique values; post-05ac368 R-flexplot parity).
-    if y_is_binary and not is_x_discrete:
+    if not skip_dispatch and y_is_binary and not is_x_discrete:
         # Binomial GLM branch — numeric binary outcome with numeric x.
         p += geom_point(alpha=0.3)
         p = _add_binomial_smooth(p, data, x, y, uncertainty, level, bands)
         if overlay_specs:
             p = _add_overlay_binomial(p, data, x, y, overlay_specs)
 
-    elif not is_y_numeric and not is_x_discrete:
+    elif not skip_dispatch and not is_y_numeric and not is_x_discrete:
         # Non-numeric y (string/categorical) with numeric x. Validate as
         # numeric 0/1; reject anything that doesn't fit a {0, 1} subset.
 
@@ -751,7 +821,7 @@ def flexplot(
         if overlay_specs:
             p = _add_overlay_binomial(p, data, x, y, overlay_specs)
 
-    elif is_y_numeric and not is_x_discrete:
+    elif not skip_dispatch and is_y_numeric and not is_x_discrete:
         p += geom_point(alpha=0.5)
         p = _add_numeric_smooth(
             p, data, x, y, method, uncertainty, level, bands
@@ -759,11 +829,11 @@ def flexplot(
         if overlay_specs:
             p = _add_overlay_numeric(p, data, x, y, overlay_specs)
 
-    elif is_y_numeric and is_x_discrete:
+    elif not skip_dispatch and is_y_numeric and is_x_discrete:
         p += geom_jitter(width=0.2, alpha=0.5)
         p = _add_discrete_summary(p, spread)
 
-    else:
+    elif not skip_dispatch:
         p += geom_jitter(width=0.2, height=0.2, alpha=0.5)
 
     if len(given) == 1:
@@ -772,6 +842,26 @@ def flexplot(
         p += facet_grid(f"{given[1]} ~ {given[0]}")
 
     p += theme_bw()
+
+    # --- Optional ghost.line reference layer (v0.6.5+) ---
+    # ghost_line="red": solid red reference line. Useful for highlighting a
+    # threshold or a reference value (e.g. y=0, or y=mean(y)).
+    # ghost_line="dashed": dashed black line. R's flexplot() uses this to
+    # mark the slope=1 reference for prediction-vs-observed plots.
+    # Both are drawn as geom_hline (horizontal), so they're 1D references
+    # at y=0. For diagonal references (slope=1), future work.
+    if ghost_line is not None:
+        if ghost_line not in {"red", "dashed"}:
+            raise ValueError(
+                f"ghost_line must be 'red', 'dashed', or None; got {ghost_line!r}."
+            )
+        if ghost_line == "red":
+            p += geom_hline(yintercept=0, color="red")
+        elif ghost_line == "dashed":
+            p += geom_hline(yintercept=0, color="black", linetype="dashed")
+
+    if return_data:
+        return {"plot": p, "data": plot_input_df}
     return p
 
 
