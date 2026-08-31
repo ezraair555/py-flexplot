@@ -6,7 +6,7 @@ import statsmodels.api as sm
 import warnings
 from plotnine import ggplot
 
-from pyflexplot import flexplot, added_plot, visualize, compare_fits
+from pyflexplot import flexplot, added_plot, visualize, compare_fits, third_eye
 from pyflexplot.core import parse_flexplot_formula
 
 
@@ -356,6 +356,28 @@ def test_compare_fits_pred_type_link_for_glm():
     assert not np.allclose(out_resp["__m1"].values, out_link["__m1"].values)
 
 
+def test_compare_fits_accepts_r_parity_extra_args():
+    """R-style args are accepted (currently no-op) for API parity."""
+    df = pd.DataFrame({
+        "y": np.random.normal(size=40),
+        "x": np.random.normal(size=40),
+    })
+    m1 = smf.ols("y ~ x", data=df).fit()
+    m2 = smf.ols("y ~ x", data=df).fit()
+    with pytest.warns(UserWarning, match="currently no-ops"):
+        p = compare_fits(
+            "y ~ x",
+            data=df,
+            model1=m1,
+            model2=m2,
+            report_se=True,
+            re=True,
+            num_points=30,
+            clusters=3,
+        )
+    assert isinstance(p, ggplot)
+
+
 def test_added_plot_residual_alignment():
     df = pd.DataFrame({
         "y": np.random.normal(size=50),
@@ -364,6 +386,11 @@ def test_added_plot_residual_alignment():
     })
     p = added_plot("y ~ x + z", data=df)
     assert isinstance(p, ggplot)
+
+
+def test_third_eye_placeholder_raises_not_implemented():
+    with pytest.raises(NotImplementedError, match="not implemented"):
+        third_eye()
 
 
 def test_added_plot_handles_missing_data_by_dropna():

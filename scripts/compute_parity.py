@@ -59,7 +59,7 @@ R_TO_PY = {
     "rsq.change": "rsq_change",
     "bf.bic": "bf_bic",
     "bluepill": "bluepill",
-    "third.eye": None,
+    "third.eye": "third_eye",
     "model.comparison": "model_comparison",
     "model_comparisons": "model_comparison",
 }
@@ -77,6 +77,8 @@ ARG_SYNONYMS = {
     "return_preds": "return_preds",
     "pred.type": "pred_type",
     "mc": "mc",
+    "object": "model",
+    "...": "**kwargs",
     "jitter": "jitter",
     "related": "related",
     "interaction_model": "interaction_model",
@@ -275,7 +277,7 @@ def main():
 
     # Report counts of known-unimplemented / intentionally excluded features.
     print("\n=== Notes ===")
-    print("third.eye intentionally excluded by owner.")
+    print("third.eye placeholder API now exists; behavior remains unimplemented.")
     print("Mixed-model S3 methods (lmerMod, glmerMod) excluded.")
     print("JASP-specific functions excluded.")
 

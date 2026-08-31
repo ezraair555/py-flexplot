@@ -2872,6 +2872,10 @@ def compare_fits(
     labels: List[str] = ["Model 1", "Model 2"],
     return_preds: bool = False,
     pred_type: str = "response",
+    report_se: bool = False,
+    re: bool = False,
+    num_points: Optional[int] = None,
+    clusters: Optional[int] = None,
     **kwargs,
 ):
     """
@@ -2891,6 +2895,19 @@ def compare_fits(
         ``"response"`` returns the probability scale (default);
         ``"link"`` returns the linear-predictor scale. Ignored for
         non-GLM models. Matches R's ``compare.fits(..., pred.type=...)``.
+    report_se : bool, default False
+        R-parity stub: when True, would include standard-error bands on
+        prediction lines.  Currently ignored; reserved for a future release.
+    re : bool, default False
+        R-parity stub: when True, would include random-effects predictions
+        for mixed models.  Currently ignored; reserved for a future release.
+    num_points : int, optional
+        R-parity stub: when set, would evaluate predictions on a grid of
+        ``num_points`` points spanning the x-range.  Currently ignored;
+        reserved for a future release.
+    clusters : int, optional
+        R-parity stub: when set, would cluster the prediction grid.
+        Currently ignored; reserved for a future release.
 
     Returns
     -------
@@ -2899,6 +2916,14 @@ def compare_fits(
         ``return_preds=True``, a DataFrame with observed and predicted
         values for both models.
     """
+    if report_se or re or num_points is not None or clusters is not None:
+        warnings.warn(
+            "compare_fits(): arguments report_se/re/num_points/clusters are "
+            "accepted for R API parity but are currently no-ops in py-flexplot.",
+            UserWarning,
+            stacklevel=2,
+        )
+
     variables = parse_flexplot_formula(formula)
     _validate_data_for_plot(formula, data, variables)
 
@@ -2937,6 +2962,20 @@ def compare_fits(
     )
 
     return p
+
+
+def third_eye(*args, **kwargs):
+    """R API placeholder for ``third.eye``.
+
+    The R package exposes ``third.eye`` as a specialized 3-way interaction
+    visualization.  py-flexplot intentionally keeps this as a stub for now,
+    so API discovery/parity tooling can detect the endpoint while behavior
+    remains explicitly unimplemented.
+    """
+    raise NotImplementedError(
+        "third_eye() is not implemented in py-flexplot yet. "
+        "Use flexplot(..., interaction_model=True) for interaction visuals."
+    )
 
 
 def _get_model_predictions(

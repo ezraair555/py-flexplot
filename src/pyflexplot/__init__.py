@@ -1,6 +1,6 @@
 """py-flexplot: Intelligent data visualization and statistical tools."""
 
-from .core import flexplot, visualize, compare_fits, added_plot
+from .core import flexplot, visualize, compare_fits, added_plot, third_eye
 from .quality import diagnose, format_summary
 from .stats import (
     model_comparison,
@@ -26,6 +26,7 @@ __all__ = [
     "visualize",
     "compare_fits",
     "added_plot",
+    "third_eye",
     # auto data-quality diagnostics
     "diagnose",
     "format_summary",
