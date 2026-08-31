@@ -9,6 +9,10 @@ Intelligent plotting that automatically chooses geoms based on variable types in
 - `flexplot(formula, data)`
 - `added_plot(formula, data)`
 - `compare_fits(formula, data, model1, model2)`
+- [`diagnose(formula, data)` (v0.6.0+)](api/quality.md) — auto data-quality diagnostics
+
+### 1a. [Uncertainty Module (v0.4.0+)](api/uncertainty.md)
+Helpers for confidence / prediction / bootstrap intervals. Used internally by `flexplot()` but also usable directly.
 
 ### 2. [Biostatistical Utilities (fifer)](api/stats.md)
 Toolbox for data cleanup, formatting, and standard statistical reporting.
