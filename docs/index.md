@@ -59,6 +59,11 @@ used with `compare_fits()` and the rest of the visualization surface.
 > `pyproject.toml` — install it separately when you want to use this
 > module.
 
+### 8. [Descriptive Visualizations (descriptives)](api/descriptives.md)
+Port of R's `fifer::meansplot()`. Plot the mean of `y` per level of
+`group` with a configurable error bar (SE / SD / CI / range / IQR / none).
+- `meansplot(formula, data, error="se", level=0.95, connect=True)`
+
 ---
 
 ## Examples & Case Studies

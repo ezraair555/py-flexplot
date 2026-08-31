@@ -6,6 +6,7 @@ from .stats import model_comparison, estimates, eta_squared, p_format, eliminate
 from .ebbr import fit_beta_prior, add_ebb_estimate
 from .sem import hopper_plot, disturbance_plot, measurement_plot
 from .bluepill import estimate_sd, mixed_model
+from .descriptives import meansplot
 from . import flex_nn
 from . import ml
 
@@ -35,6 +36,8 @@ __all__ = [
     # bluepill (simulated datasets)
     "estimate_sd",
     "mixed_model",
+    # descriptives (descriptive-statistics visualizations)
+    "meansplot",
     # flex_nn (neural-network integration)
     "flex_nn",
     # ml (sklearn / random-forest adapters)

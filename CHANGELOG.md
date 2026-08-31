@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent highlights
 
+- **0.7.4** — New `pyflexplot.meansplot()` ports R's `fifer::meansplot()` for descriptive-statistics visualizations (mean + error bar per group, with `error="se"|"sd"|"ci"|"range"|"iqr"|"no"`).
 - **0.7.3** — `estimates()` returns a real R² confidence interval via non-central-F inversion (was `None` placeholder in v0.6.x); new `eta_squared()` for partial eta-squared; `ghost_line="slope1"` adds a diagonal slope=1 reference for prediction-vs-observed overlays.
 - **0.7.0** — `flexplot()` gains `interaction_model=True` for non-parallel slopes per color group when the formula uses R-style interaction syntax (`*` or `:`). Closes the largest semantic gap in the v0.6.2 R-audit.
 - **0.6.7** — New `pyflexplot.ml.RFAdapter` lets scikit-learn estimators (random forests, gradient boosting, any `.predict()`-bearing estimator) participate in `compare_fits()` alongside statsmodels fits. Documentation honesty pass: README + `docs/index.md` + `docs/api/core.md` + `docs/api/stats.md` now reflect what's actually in the package; new `docs/api/coverage.md` gives a per-feature matrix vs the R packages.
@@ -20,6 +21,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **0.5.0** — New `overlay=` parameter on `flexplot()` for multi-smoother comparison.
 - **0.4.0** — First-class uncertainty layer on `flexplot()` (`uncertainty=`, `level=`, `bands=`); new `pyflexplot.uncertainty` module.
 - **0.3.0** — `visualize()` accepts `NeuralNetFit` wrappers; formula parser validation hardened.
+
+## [0.7.4] - 2026-08-31
+
+### Added
+
+- **`pyflexplot.meansplot()`** — port of R's `fifer::meansplot()`.
+  Plots the mean of `y` per level of `x` with a configurable error bar:
+  - `error="se"`: standard error of the mean (default).
+  - `error="sd"`: sample standard deviation (ddof=1).
+  - `error="ci"`: `level` confidence interval on the mean (t-distribution).
+  - `error="range"`: min-max range.
+  - `error="iqr"`: Q1-Q3 interquartile range.
+  - `error="no"`: no error bar.
+  - `connect=True` (default): draw a dashed gray line connecting the
+    per-group means (useful for ordinal predictors).
+
+  Implementation lives in `src/pyflexplot/descriptives.py` to keep the
+  descriptive-stats surface separate from the formula-dispatch logic in
+  `core.py`. Numeric predictors with few unique values are coerced to
+  discrete levels so the line connects properly.
+
+  Documented in [`docs/api/descriptives.md`](docs/api/descriptives.md).
+
+### Tests
+
+- 12 new tests in `tests/test_meansplot.py` covering: smoke / layer
+  count, error-bar omission (`error="no"`), line omission
+  (`connect=False`), validation (invalid `error`, color term, non-
+  numeric y, `given` term), and numeric correctness (per-group means
+  match manual groupby, SE bar width = `std/sqrt(n)`, SD bar width =
+  sample std, numeric-x discretization).
 
 ## [0.7.3] - 2026-08-31
 

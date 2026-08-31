@@ -101,6 +101,19 @@ The Python signature is `(DataFrame, p_value)` — a 2-tuple. R's
 
 ---
 
+## `fifer::meansplot()` — descriptive visualizations
+
+| Feature | Status | Python equivalent | Notes |
+|---|---|---|---|
+| Mean + SE / SD error bars | ✅ | `pyflexplot.meansplot(error="se"\|"sd")` | v0.7.4+. |
+| CI on the mean (t-distribution) | ✅ | `pyflexplot.meansplot(error="ci")` | |
+| Range / IQR error bars | ✅ | `pyflexplot.meansplot(error="range"\|"iqr")` | |
+| Connecting line between means | ✅ | `pyflexplot.meansplot(connect=True)` | Always gray dashed in the Python port. |
+| Color term | ❌ | — | Rejected explicitly; not in scope. |
+| `\| given` facets | ❌ | — | Rejected explicitly; not in scope. |
+
+---
+
 ## `flexplot::diagnose()` — data-quality diagnostics
 
 | Feature | Status | Notes |
