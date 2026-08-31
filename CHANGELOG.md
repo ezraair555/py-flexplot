@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent highlights
 
+- **0.6.6** — `flexplot()` gains `ghost.reference` (DataFrame overlay for reference scatter or prediction line), `plot.string` (label override dict), and `related` (no-op on Python side; plotnine already shares scales by default).
 - **0.6.5** — `flexplot()` gains `sample` (subsample rows for plotting, full data still used for fits), `ghost_line` ("red" or "dashed" reference line), `plot_type` override ("scatter", "line", "boxplot", "bar"), and `return_data` (returns `{"plot", "data"}` instead of just plot). Closes the remaining easy-wins from the v0.6.x R-audit.
 - **0.6.4** — `flexplot()` gains `bins` / `labels` / `breaks` (numeric-x auto-discretization, R-flexplot parity), `spread` (stdev/range/iqr/ci/no dispersion markers), and `method='polynomial'` / `'cubic'` / `'logistic'` parametric smoothers. Closes the auto-bin gap from the v0.6.2 R-audit.
 - **0.6.3** — `model_comparison()` now exposes Bayes factor + adj.R²; `compare_fits()` gains `return_preds` + `pred_type`; `estimates()` is a real structured effect-size reporter (R², sigma, coef DataFrame, standardized betas, semi-partial R², factors/numbers split); `visualize()` accepts `plot='residuals'` / `'all'`.
@@ -16,6 +17,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **0.5.0** — New `overlay=` parameter on `flexplot()` for multi-smoother comparison.
 - **0.4.0** — First-class uncertainty layer on `flexplot()` (`uncertainty=`, `level=`, `bands=`); new `pyflexplot.uncertainty` module.
 - **0.3.0** — `visualize()` accepts `NeuralNetFit` wrappers; formula parser validation hardened.
+
+## [0.6.6] - 2026-08-31
+
+### Added
+
+- **`ghost_reference: pd.DataFrame`** on `flexplot()` — overlays a reference
+  dataset on the same axes. Two patterns detected by column shape:
+  - `(x, y)` columns: draws a `geom_point` layer in gray, alpha=0.4
+    (typical for "compare to a reference group").
+  - `(x, "pred")` columns: draws a `geom_line` layer in red dashed
+    (typical for prediction-vs-observed overlays).
+  Validation: rejects non-DataFrame, missing x column, missing y/pred.
+  R-flexplot parity.
+
+- **`plot_string: dict`** on `flexplot()` — overrides the axis/legend
+  labels derived from the formula. Accepts keys: `x`, `y`, `title`,
+  `subtitle`, `caption`, `color`. Unknown keys are silently dropped
+  (plotnine's `labs()` rejects them). Validation: rejects non-dict, non-
+  string keys/values.
+
+- **`related: bool`** on `flexplot()` — R-flexplot's panel-linking flag.
+  Currently a no-op on the Python side because plotnine's facets share
+  scales by default (`scales="fixed"`). Accepted for R-parity; future
+  work could surface `scales="free_x"` / `"free_y"` / `"free"` as the
+  actual user-facing control. Validation: rejects non-bool.
+
+### Tests
+
+- 9 new tests in `tests/test_ghost_reference.py` (validation + scatter
+  pattern + pred-line pattern + interaction with ghost_line).
+- 12 new tests in `tests/test_plot_string_related.py` (default behavior,
+  override semantics, multi-key dicts, unknown-key silent drop,
+  non-dict rejection, related bool validation).
 
 ## [0.6.5] - 2026-08-31
 

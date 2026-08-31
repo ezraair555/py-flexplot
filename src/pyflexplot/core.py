@@ -485,6 +485,9 @@ def flexplot(
     ghost_line: Optional[str] = None,
     plot_type: Optional[str] = None,
     return_data: bool = False,
+    ghost_reference=None,
+    plot_string=None,
+    related: bool = False,
     **kwargs,
 ):
     """Intelligent multivariate graphics via formulas.
@@ -556,6 +559,17 @@ def flexplot(
         When ``True``, return ``{"plot": ggplot, "data": DataFrame}``
         instead of just the plot. Useful with ``sample=`` to know which
         rows were plotted.
+    ghost_reference : pd.DataFrame, optional
+        Reference dataset to overlay on the same axes. Two patterns:
+        - Columns ``(x, y)``: draws a gray geom_point layer (reference scatter).
+        - Columns ``(x, "pred")``: draws a red dashed geom_line (prediction line).
+    plot_string : dict, optional
+        Override the axis/legend labels derived from the formula. Accepts
+        keys ``x``, ``y``, ``title``, ``subtitle``, ``caption``, ``color``.
+    related : bool, default False
+        R-flexplot's panel-linking flag. Currently a no-op on the Python
+        side (plotnine already shares scales by default). Accepted for
+        R-parity; raises ``TypeError`` if not a bool.
     **kwargs
         Reserved for future extension.
 
@@ -843,6 +857,44 @@ def flexplot(
 
     p += theme_bw()
 
+    # --- Optional plot.string override (v0.6.6+) ---
+    # R-flexplot's plot.string is a dict of label overrides:
+    # {"x": "Time (s)", "y": "Voltage (V)", "title": "Experiment 1"}
+    # Validation: must be a dict with string keys and string values.
+    if plot_string is not None:
+        if not isinstance(plot_string, dict):
+            raise TypeError(
+                f"plot_string must be a dict of {{label: text}} overrides; "
+                f"got {type(plot_string).__name__}."
+            )
+        bad = {k: type(v).__name__ for k, v in plot_string.items()
+               if not isinstance(k, str) or not isinstance(v, str)}
+        if bad:
+            raise TypeError(
+                f"plot_string keys and values must all be strings; "
+                f"bad entries: {bad}"
+            )
+        # Apply via plotnine's labs(). Only known labels are passed through;
+        # unknown keys are silently ignored (plotnine's labs() ignores
+        # unknown keys but emits a warning we don't want to surface).
+        labs_kwargs = {
+            k: v for k, v in plot_string.items()
+            if k in {"x", "y", "title", "subtitle", "caption", "color"}
+        }
+        if labs_kwargs:
+            p += labs(**labs_kwargs)
+
+    # --- Optional related=True (v0.6.6+) ---
+    # R-flexplot's related=True forces shared y/x scales across facet
+    # panels. plotnine's facet_wrap / facet_grid already share scales by
+    # default ('fixed'), so this is essentially a no-op for now; the
+    # 'free' / 'free_x' / 'free_y' opt-out is the actual user-facing
+    # control. We accept the flag for R-parity but document that it's
+    # currently a no-op on the Python side. Validating it exists so users
+    # get an explicit error if they typo it.
+    if not isinstance(related, bool):
+        raise TypeError(f"related must be a bool; got {type(related).__name__}.")
+
     # --- Optional ghost.line reference layer (v0.6.5+) ---
     # ghost_line="red": solid red reference line. Useful for highlighting a
     # threshold or a reference value (e.g. y=0, or y=mean(y)).
@@ -859,6 +911,50 @@ def flexplot(
             p += geom_hline(yintercept=0, color="red")
         elif ghost_line == "dashed":
             p += geom_hline(yintercept=0, color="black", linetype="dashed")
+
+    # --- Optional ghost.reference overlay (v0.6.6+) ---
+    # R-flexplot accepts ghost.reference as a DataFrame to overlay on the
+    # same axes. Two common patterns:
+    #   1. Reference scatter: columns matching x/y → draw geom_point in
+    #      light gray.
+    #   2. Reference prediction line: columns (x, "pred") → draw geom_line
+    #      in a contrasting color.
+    # We detect the pattern by checking if the DataFrame has columns
+    # [x, y] or [x, "pred"].
+    if ghost_reference is not None:
+        if not isinstance(ghost_reference, pd.DataFrame):
+            raise TypeError(
+                f"ghost_reference must be a pandas DataFrame or None; "
+                f"got {type(ghost_reference).__name__}."
+            )
+        if x not in ghost_reference.columns:
+            raise ValueError(
+                f"ghost_reference DataFrame must have column {x!r} "
+                f"(matching x in the formula); got columns "
+                f"{list(ghost_reference.columns)}."
+            )
+        if "pred" in ghost_reference.columns:
+            # Prediction-line pattern: geom_line in red.
+            p += geom_line(
+                aes(y="pred"),
+                data=ghost_reference,
+                color="red",
+                linetype="dashed",
+                inherit_aes=False,
+            )
+        elif y in ghost_reference.columns:
+            # Reference-scatter pattern: geom_point in light gray.
+            p += geom_point(
+                data=ghost_reference,
+                color="gray",
+                alpha=0.4,
+                inherit_aes=False,
+            )
+        else:
+            raise ValueError(
+                f"ghost_reference must have either column {y!r} (scatter) "
+                f"or 'pred' (line); got {list(ghost_reference.columns)}."
+            )
 
     if return_data:
         return {"plot": p, "data": plot_input_df}
