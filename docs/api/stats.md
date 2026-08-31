@@ -94,31 +94,44 @@ print(report["semi.p.r2"])
 
 ---
 
-## `eta_squared` (v0.7.3+)
+## `eta_squared` (v0.7.5+)
 
-Partial eta-squared (η²_p) for a fitted OLS model, with a confidence
-interval via the same non-central-F inversion that powers
-`estimates()["r.squared.ci"]`. Port of R's `sjstats::eta_sq()` /
-`fifer::eta_squared()`.
+Per-term partial eta-squared (η²_p) for a fitted OLS model, with a CI via
+the same non-central-F inversion that powers `estimates()["r.squared.ci"]`.
+Port of R's `sjstats::eta_sq()` / `fifer::eta_squared()`.
 
 ```python
 from pyflexplot import eta_squared
-df = eta_squared(ols_model)        # one-row DataFrame indexed by "model"
-df = eta_squared(ols_model, level=0.90)   # custom CI level
+df = eta_squared(ols_model)                   # type-III SS (R's default)
+df = eta_squared(ols_model, typ=2)             # type-II SS (hierarchical)
+df = eta_squared(ols_model, level=0.90)        # custom CI level
 ```
 
 ### Returns
-A `pandas.DataFrame` with one row (`"model"`) and columns:
-- `eta_sq` (float): partial eta-squared, `(F * df1) / (F * df1 + df2)`.
-- `eta_sq_ci_low` (float | None): CI lower bound (None if degenerate).
-- `eta_sq_ci_high` (float | None): CI upper bound (None if degenerate).
-- `F` (float): the model's overall F-statistic.
+A `pandas.DataFrame` with **one row per non-intercept term** (v0.7.5+;
+prior versions returned one row indexed by `"model"`):
+
+| Column | Type | Notes |
+|---|---|---|
+| `eta_sq` | float | Partial eta-squared for the term: `(F * df_term) / (F * df_term + df_resid)`. |
+| `eta_sq_ci_low` | float \| None | CI lower bound (None if degenerate). |
+| `eta_sq_ci_high` | float \| None | CI upper bound (None if degenerate). |
+| `F` | float | Per-term F-statistic. |
+| `p_value` | float | Per-term p-value. |
+| `df` | int | Per-term degrees of freedom. |
+
+### Method
+v0.7.5: uses `statsmodels.stats.anova.anova_lm(model, typ=typ)` to compute
+type-I, II, or III sums of squares per term. Type III is the default
+and matches R's `car::Anova(..., type=3)` semantics. For categorical
+predictors, `df` reflects the number of levels minus 1.
 
 ### Notes
-- statsmodels' OLS exposes a single model-F, not per-term Fs. So
-  `eta_squared()` returns one row indexed by `"model"`, not one row
-  per predictor. For per-predictor semi-partial R² (a related but
-  distinct quantity), use `estimates()["semi.p.r2"]`.
+- v0.7.3 returned a single-row DataFrame indexed by `"model"` (the
+  overall model partial η², not per-term). v0.7.5 changed the surface
+  to return per-term rows. If you need the old behavior, sum the
+  per-term `eta_sq` weighted by their `df` (which recovers the model
+  total).
 - η²_p can exceed R² when predictors are correlated; it estimates the
   variance in y explained by *each* predictor after controlling for
   the others.

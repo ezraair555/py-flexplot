@@ -84,3 +84,51 @@ print(p.data)
 These differences are intentional: the Python port keeps the surface
 small and explicit, and delegates richer customization to plotnine's
 standard layer composition.
+
+---
+
+## `scatter3D`
+
+A 2D projection of R-flexplot's `scatter3D()` for visualizing
+`y ~ x + z` (one numeric outcome, two continuous predictors).
+
+```python
+from pyflexplot import scatter3D
+
+# Scatter projection: (x, z) points colored by y.
+p = scatter3D("weight ~ age + height", data=df)
+
+# Heatmap projection: aggregate y into a (bins x bins) grid.
+p = scatter3D("weight ~ age + height", data=df, type="tile", bins=30)
+```
+
+### Parameters
+- **formula** (`str`): Formula of the form `y ~ x + z`. `y`, `x`, and `z`
+  must all be numeric. Color terms beyond the two predictors and `|`
+  facets are not supported and raise `ValueError`.
+- **data** (`pd.DataFrame`): The dataset.
+- **type** (`{"points", "tile"}`, default `"points"`):
+  - `"points"`: scatter of `(x, z)` with `y` mapped to color.
+    Best for raw inspection of the `(x, z) → y` relationship.
+  - `"tile"`: aggregate `y` into a `bins x bins` grid and draw a
+    heatmap. Best for dense data where point overlap obscures structure.
+- **bins** (`int`, default `20`): Number of bins per axis when
+  `type='tile'`.
+
+### Returns
+A `plotnine.ggplot`. For `type='tile'`, the aggregated per-bin
+DataFrame is exposed at `p.data`.
+
+### Differences from R-flexplot's `scatter3D()`
+
+- R-flexplot uses the rgl package for true 3D rotation; that backend
+  is out of scope for the Python port. `scatter3D()` here is a 2D
+  projection that surfaces the same relationship structure without
+  adding a 3D plotting dependency.
+- The "points" projection is most useful for inspecting the raw
+  distribution; the "tile" projection is most useful for dense data.
+
+### Limitations
+- "points" with > 1000 observations can render slowly; consider
+  `sample=` (in `flexplot()`) or `bins=` (in tile mode) for large
+  datasets.

@@ -60,9 +60,9 @@ used with `compare_fits()` and the rest of the visualization surface.
 > module.
 
 ### 8. [Descriptive Visualizations (descriptives)](api/descriptives.md)
-Port of R's `fifer::meansplot()`. Plot the mean of `y` per level of
-`group` with a configurable error bar (SE / SD / CI / range / IQR / none).
+Port of R's `fifer::meansplot()` and a 2D projection of `flexplot::scatter3D()`.
 - `meansplot(formula, data, error="se", level=0.95, connect=True)`
+- `scatter3D(formula, data, type="points"|"tile", bins=20)`
 
 ---
 

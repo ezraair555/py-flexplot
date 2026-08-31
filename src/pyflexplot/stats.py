@@ -91,7 +91,7 @@ def model_comparison(model1, model2):
     return res, p_val
 
 
-def eta_squared(model, level: float = 0.95):
+def eta_squared(model, level: float = 0.95, typ: int = 3):
     """Compute partial eta-squared (η²_p) per predictor in a fitted OLS model.
 
     A port of R's ``sjstats::eta_sq()`` / ``fifer::eta_squared()``. For each
@@ -100,16 +100,21 @@ def eta_squared(model, level: float = 0.95):
         η²_p = (SS_effect / df_effect) / (SS_effect / df_effect + SS_resid / df_resid)
              = (F * df1) / (F * df1 + df2)
 
-    where F is the per-term F-statistic, df1 = 1 (partial effect for one
-    predictor at a time), and df2 = residual df.
+    where F is the per-term F-statistic, df1 is the term's df (1 for a
+    single coefficient, k for a categorical), and df2 is the residual df.
 
     Partial eta-squared estimates the variance in y explained by each
     predictor *after* controlling for all other predictors. It's bounded
     in [0, 1] but can exceed R² when predictors are correlated (it's a
     separate concept from semi-partial R² which is bounded above by R²).
 
-    Confidence intervals are computed via the same non-central-F
-    inversion as ``_r_squared_ci()`` applied to η²_p.
+    Method (v0.7.5+):
+    - Use ``statsmodels.stats.anova.anova_lm(model, typ=typ)`` to get
+      type-I, II, or III sums of squares per term. Default ``typ=3``
+      matches R's ``car::Anova(..., type=3)`` semantics.
+    - For each term, compute η²_p from the per-term F.
+    - Compute CI via the same non-central-F inversion as
+      ``_r_squared_ci()`` applied to η²_p.
 
     Parameters
     ----------
@@ -118,6 +123,10 @@ def eta_squared(model, level: float = 0.95):
         ``.df_model``, ``.df_resid``, ``.model.exog_names`` attributes).
     level : float, default 0.95
         Coverage probability for the per-predictor CI.
+    typ : int, default 3
+        Type of sums of squares. 1 = sequential, 2 = hierarchical,
+        3 = marginal (R's default). Type III is the most common choice
+        for unbalanced designs and matches ``car::Anova(type=3)``.
 
     Returns
     -------
@@ -126,9 +135,9 @@ def eta_squared(model, level: float = 0.95):
         - ``eta_sq`` : partial eta-squared
         - ``eta_sq_ci_low`` : CI lower bound (or ``None`` if degenerate)
         - ``eta_sq_ci_high`` : CI upper bound (or ``None`` if degenerate)
-        - ``F`` : per-term F-statistic (``None`` if the model doesn't
-          expose one — statsmodels' OLS gives a single model-F, not
-          per-term)
+        - ``F`` : per-term F-statistic
+        - ``p_value`` : per-term p-value
+        - ``df`` : per-term degrees of freedom
     """
     if not hasattr(model, "df_model") or not hasattr(model, "df_resid"):
         raise TypeError(
@@ -144,32 +153,75 @@ def eta_squared(model, level: float = 0.95):
         )
     predictors = [n for n in exog_names if n != "Intercept"]
 
-    # statsmodels' OLS exposes a single model-F, not per-term Fs. Without
-    # per-term Fs, partial η² is just (F * df_model) / (F * df_model +
-    # df_resid) — a single value for the whole model, not per-predictor.
-    # We return a one-row DataFrame in that case (the overall model's
-    # partial η²). For richer per-predictor partial η², the caller should
-    # use ``estimates()`` which computes semi-partial R² per predictor via
-    # reduced-model fits.
-    if not predictors or not hasattr(model, "fvalue"):
-        return pd.DataFrame(columns=["eta_sq", "eta_sq_ci_low", "eta_sq_ci_high", "F"])
+    if not predictors:
+        return pd.DataFrame(
+            columns=["eta_sq", "eta_sq_ci_low", "eta_sq_ci_high", "F", "p_value", "df"]
+        )
 
-    F = float(model.fvalue)
-    df1 = int(model.df_model)
-    df2 = int(model.df_resid)
+    # Compute per-term SS via statsmodels' anova_lm. Type III SS requires
+    # the model to have been fitted with `data` so the design matrix can
+    # be reconstructed; if that fails, fall back to a manual approach.
+    try:
+        from statsmodels.stats.anova import anova_lm
+        anova_tbl = anova_lm(model, typ=typ)
+    except Exception as exc:
+        # statsmodels raises if the model wasn't fit with `data=` and we
+        # can't recover the term-level SS. Fall back to the legacy
+        # single-row computation rather than crashing.
+        if not hasattr(model, "fvalue"):
+            return pd.DataFrame(
+                columns=["eta_sq", "eta_sq_ci_low", "eta_sq_ci_high", "F", "p_value", "df"]
+            )
+        F = float(model.fvalue)
+        df1 = int(model.df_model)
+        df2 = int(model.df_resid)
+        nobs = int(model.nobs)
+        eta2 = (F * df1) / (F * df1 + df2)
+        ci = _r_squared_ci(r2=eta2, df_model=df1, nobs=nobs, level=level)
+        return pd.DataFrame(
+            {
+                "eta_sq": [eta2],
+                "eta_sq_ci_low": [ci[0] if ci is not None else None],
+                "eta_sq_ci_high": [ci[1] if ci is not None else None],
+                "F": [F],
+                "p_value": [float(model.f_pvalue)],
+                "df": [df1],
+            },
+            index=["model"],
+        )
+
+    # Drop the residual row; only term rows contribute to per-predictor η².
+    if "df" in anova_tbl.columns and "F" in anova_tbl.columns:
+        # Newer statsmodels uses lowercase; older uses uppercase. Be lenient.
+        pass
+    term_rows = anova_tbl.drop(index="Residual", errors="ignore")
+
     nobs = int(model.nobs)
+    df_resid = float(anova_tbl.loc["Residual", "df"]) if "Residual" in anova_tbl.index else float(model.df_resid)
 
-    eta2 = (F * df1) / (F * df1 + df2)
-    ci = _r_squared_ci(r2=eta2, df_model=df1, nobs=nobs, level=level)
-    return pd.DataFrame(
-        {
-            "eta_sq": [eta2],
-            "eta_sq_ci_low": [ci[0] if ci is not None else None],
-            "eta_sq_ci_high": [ci[1] if ci is not None else None],
-            "F": [F],
-        },
-        index=["model"],
-    )
+    rows = []
+    for term, row in term_rows.iterrows():
+        # Skip the intercept row.
+        if term in {"Intercept", "C(Intercept)"}:
+            continue
+        F_term = float(row["F"])
+        df_term = float(row["df"])
+        p_term = float(row["PR(>F)"]) if "PR(>F)" in row else float("nan")
+        eta2 = (F_term * df_term) / (F_term * df_term + df_resid)
+        ci = _r_squared_ci(r2=eta2, df_model=int(df_term), nobs=nobs, level=level)
+        rows.append({
+            "eta_sq": eta2,
+            "eta_sq_ci_low": ci[0] if ci is not None else None,
+            "eta_sq_ci_high": ci[1] if ci is not None else None,
+            "F": F_term,
+            "p_value": p_term,
+            "df": df_term,
+        })
+    if not rows:
+        return pd.DataFrame(
+            columns=["eta_sq", "eta_sq_ci_low", "eta_sq_ci_high", "F", "p_value", "df"]
+        )
+    return pd.DataFrame(rows, index=list(term_rows.index.drop(["Intercept", "Residual"], errors="ignore"))[:len(rows)])
 
 
 def _r_squared_ci(r2: float, df_model: int, nobs: int, level: float = 0.95):

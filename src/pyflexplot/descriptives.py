@@ -30,8 +30,11 @@ from plotnine import (
     geom_errorbar,
     geom_line,
     geom_point,
+    geom_tile,
     ggplot,
     labs,
+    scale_fill_gradient,
+    scale_color_gradient,
     theme_bw,
 )
 
@@ -155,4 +158,132 @@ def meansplot(
             color="gray",
             linetype="dashed",
         )
+    return p
+
+_VALID_SCATTER3D_TYPE = {"points", "tile"}
+
+
+def scatter3D(
+    formula: str,
+    data: pd.DataFrame,
+    type: str = "points",
+    bins: int = 20,
+):
+    """Visualize the relationship between a numeric outcome and two continuous predictors.
+
+    A 2D rendering of R-flexplot's ``scatter3D()``: plots ``x`` on the
+    horizontal axis and ``z`` on the vertical axis, with the outcome
+    ``y`` mapped to either point color (``type='points'``, the default)
+    or tile fill (``type='tile'``).
+
+    This is a *projection* of the 3D relationship ``y ~ x + z`` — not a
+    true 3D scatter, since plotnine renders to 2D. R-flexplot's
+    ``scatter3D()`` uses the rgl package for true 3D; that backend is
+    out of scope for the Python port. This 2D projection still surfaces
+    the relationship structure and is the closest faithful rendering
+    without adding a 3D plotting dependency.
+
+    Parameters
+    ----------
+    formula : str
+        Formula of the form ``y ~ x + z``. ``y``, ``x``, and ``z`` must
+        all be numeric. The parser uses ``x`` as the horizontal axis,
+        ``z`` as the vertical axis, and ``y`` as the color / fill.
+    data : pd.DataFrame
+        The dataset.
+    type : {"points", "tile"}, default "points"
+        - ``"points"``: scatter of (x, z), color = y. Best for raw
+          inspection of the (x, z) -> y relationship.
+        - ``"tile"``: aggregate y into a (bins x bins) grid and draw
+          a heatmap. Best for dense data where point overlap obscures
+          structure.
+    bins : int, default 20
+        Number of bins per axis when ``type='tile'``. Ignored when
+        ``type='points'``.
+
+    Returns
+    -------
+    plotnine.ggplot
+    """
+    if type not in _VALID_SCATTER3D_TYPE:
+        raise ValueError(
+            f"type must be one of {sorted(_VALID_SCATTER3D_TYPE)}; got {type!r}."
+        )
+
+    variables = parse_flexplot_formula(formula)
+    _validate_data_for_plot(formula, data, variables)
+    y = variables["y"]
+    x = variables["x"]
+    # parse_flexplot_formula returns the first atom as x and the second
+    # (when present) as color. For y ~ x + z, z is exposed as the
+    # "color" term in the parser; we treat it as the vertical axis.
+    z = variables.get("color")
+    if z is None:
+        raise ValueError(
+            f"scatter3D requires a formula with two predictors: y ~ x + z. "
+            f"Got {formula!r}."
+        )
+    if variables.get("given"):
+        raise ValueError(
+            f"scatter3D does not support `given` terms (faceting); got "
+            f"formula {formula!r} with given={variables['given']!r}."
+        )
+
+    for col in (y, x, z):
+        if not pd.api.types.is_numeric_dtype(data[col]):
+            raise ValueError(
+                f"scatter3D requires numeric columns for y, x, and z; "
+                f"got column {col!r} with dtype {data[col].dtype}."
+            )
+
+    if type == "points":
+        p = (
+            ggplot(data, aes(x=x, y=z, color=y))
+            + geom_point(alpha=0.6)
+            + scale_color_gradient(low="#fee8c8", high="#7f0000", name=y)
+            + labs(
+                x=x,
+                y=z,
+                color=y,
+                title=f"scatter3D: {y} by {x} + {z}",
+            )
+            + theme_bw()
+        )
+        return p
+
+    # type == "tile": bin (x, z) into a grid; compute the mean of y per bin.
+    work = data[[x, z, y]].copy()
+    work["__x_bin"] = pd.cut(work[x], bins=bins, labels=False, include_lowest=True)
+    work["__z_bin"] = pd.cut(work[z], bins=bins, labels=False, include_lowest=True)
+    agg = (
+        work.groupby(["__x_bin", "__z_bin"], observed=True)[y]
+        .mean()
+        .reset_index()
+    )
+    # Recover bin centers for the aesthetic mapping.
+    x_cuts = pd.cut(data[x], bins=bins, include_lowest=True)
+    z_cuts = pd.cut(data[z], bins=bins, include_lowest=True)
+    x_bin_centers = {
+        i: float((interval.left + interval.right) / 2.0)
+        for i, interval in enumerate(x_cuts.cat.categories)
+    }
+    z_bin_centers = {
+        i: float((interval.left + interval.right) / 2.0)
+        for i, interval in enumerate(z_cuts.cat.categories)
+    }
+    agg["__x_center"] = agg["__x_bin"].map(x_bin_centers)
+    agg["__z_center"] = agg["__z_bin"].map(z_bin_centers)
+
+    p = (
+        ggplot(agg, aes(x="__x_center", y="__z_center", fill=y))
+        + geom_tile()
+        + scale_fill_gradient(low="#fee8c8", high="#7f0000", name=f"mean({y})")
+        + labs(
+            x=x,
+            y=z,
+            fill=f"mean({y})",
+            title=f"scatter3D tile: {y} by {x} + {z}",
+        )
+        + theme_bw()
+    )
     return p

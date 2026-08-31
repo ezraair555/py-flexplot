@@ -98,6 +98,8 @@ The Python signature is `(DataFrame, p_value)` — a 2-tuple. R's
 | Semi-partial R² | ✅ | Computed via reduced-model fits. |
 | Factor vs numeric split | ✅ | v0.6.3+. |
 | Formula echo | ✅ | v0.6.3+. |
+| Per-term partial η²_p (type-III SS) | ✅ | `eta_squared(model, typ=3)` (v0.7.5+). |
+| Per-term CI on η²_p | ✅ | v0.7.5+ via the same non-central-F inversion. |
 
 ---
 
@@ -111,6 +113,16 @@ The Python signature is `(DataFrame, p_value)` — a 2-tuple. R's
 | Connecting line between means | ✅ | `pyflexplot.meansplot(connect=True)` | Always gray dashed in the Python port. |
 | Color term | ❌ | — | Rejected explicitly; not in scope. |
 | `\| given` facets | ❌ | — | Rejected explicitly; not in scope. |
+
+---
+
+## `flexplot::scatter3D()` — 3D scatter
+
+| Feature | Status | Python equivalent | Notes |
+|---|---|---|---|
+| True 3D rendering (rgl) | ❌ | — | rgl is R-only; no Python port. |
+| 2D scatter projection (x, z) colored by y | ✅ | `pyflexplot.scatter3D(type="points")` | v0.7.5+. |
+| 2D heatmap projection (binned y) | ✅ | `pyflexplot.scatter3D(type="tile")` | v0.7.5+. |
 
 ---
 

@@ -24,7 +24,7 @@ This is **not** a 1:1 port. The Python port covers the parts of R's `flexplot` a
 - **flexplavaan**: Visualizing latent variable models (SEM).
 - **flex_nn**: Neural-network visualization wrappers. **torch** is the default backend; **Keras 3** is supported transparently via the same `NeuralNetFit` class. Drop any `torch.nn.Module` or `keras.Model` (Sequential, Functional, or subclassed) into `compare_fits()` alongside statsmodels fits.
 - **bluepill**: Synthetic mixed-model data generator. `mixed_model(...)` produces clustered data with fixed and random effects, interactions, and polynomial terms.
-- **descriptives** (Python-native, port of `fifer::meansplot()`): `meansplot(formula, data, error=...)` for mean + error-bar visualizations across categorical or ordinal groups.
+- **descriptives** (Python-native, port of `fifer::meansplot()`): `meansplot(formula, data, error=...)` for mean + error-bar visualizations across categorical or ordinal groups. `scatter3D(formula, data, type=...)` for 2D projection of `y ~ x + z`.
 - **ml** (Python-native, no R analog): Adapters so scikit-learn estimators (`RandomForestRegressor`, `RandomForestClassifier`, and any estimator with `.predict()`) can be used with `compare_fits()`. Optional — requires `pip install scikit-learn`.
 
 ## Installation

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent highlights
 
+- **0.7.5** — `eta_squared()` upgraded from a single model-row to per-term partial η²_p via `statsmodels.stats.anova.anova_lm(model, typ=...)` (type-I/II/III SS); new `scatter3D()` for 2D projection of `y ~ x + z` (points or tile mode).
 - **0.7.4** — New `pyflexplot.meansplot()` ports R's `fifer::meansplot()` for descriptive-statistics visualizations (mean + error bar per group, with `error="se"|"sd"|"ci"|"range"|"iqr"|"no"`).
 - **0.7.3** — `estimates()` returns a real R² confidence interval via non-central-F inversion (was `None` placeholder in v0.6.x); new `eta_squared()` for partial eta-squared; `ghost_line="slope1"` adds a diagonal slope=1 reference for prediction-vs-observed overlays.
 - **0.7.0** — `flexplot()` gains `interaction_model=True` for non-parallel slopes per color group when the formula uses R-style interaction syntax (`*` or `:`). Closes the largest semantic gap in the v0.6.2 R-audit.
@@ -21,6 +22,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **0.5.0** — New `overlay=` parameter on `flexplot()` for multi-smoother comparison.
 - **0.4.0** — First-class uncertainty layer on `flexplot()` (`uncertainty=`, `level=`, `bands=`); new `pyflexplot.uncertainty` module.
 - **0.3.0** — `visualize()` accepts `NeuralNetFit` wrappers; formula parser validation hardened.
+
+## [0.7.5] - 2026-08-31
+
+### Added
+
+- **Per-term partial eta-squared in `eta_squared()`** — the v0.7.3
+  implementation returned a single row indexed by `"model"` (the overall
+  partial η², not per-term). v0.7.5 changes the surface to return one
+  row per non-intercept term, computed via
+  `statsmodels.stats.anova.anova_lm(model, typ=...)`. Default `typ=3`
+  matches R's `car::Anova(..., type=3)` semantics. New `typ` parameter
+  accepts 1 (sequential), 2 (hierarchical), or 3 (marginal).
+  - Per-term `F`, `p_value`, and `df` (1 for numeric predictors,
+    `k-1` for k-level categorical) are included.
+  - Per-term CI on η²_p via the same non-central-F inversion.
+  - Implementation falls back gracefully if `anova_lm` can't be called
+    (e.g. model wasn't fit with `data=`): returns the legacy one-row
+    `"model"` shape.
+
+- **`pyflexplot.scatter3D()`** — 2D projection of R-flexplot's
+  `scatter3D()` for `y ~ x + z` (one numeric outcome, two continuous
+  predictors). plotnine doesn't support 3D rendering, so the Python
+  port projects to either:
+  - `"points"` (default): scatter of `(x, z)` with `y` mapped to color.
+  - `"tile"`: aggregate `y` into a `bins x bins` grid and draw a
+    heatmap.
+  R-flexplot uses rgl for true 3D rotation; that backend is out of
+  scope for the Python port (no rgl equivalent on plotnine). The 2D
+  projection still surfaces the relationship structure.
+
+### Tests
+
+- 16 tests in `tests/test_eta_squared.py` (rewrite for the per-term
+  surface): per-term indexing, df > 1 for categoricals, value matches
+  the type-III ANOVA formula exactly, p-values match the ANOVA table,
+  strong-vs-weak predictor correctness, CI bounds, custom `typ=2`,
+  validation.
+- 14 tests in `tests/test_scatter3d.py` (new): smoke + layer count
+  for points and tile, default type, validation (unknown type, single
+  predictor, non-numeric columns, `|` given term), tile aggregation
+  matches manual groupby on the same bins.
+
+### Documentation
+
+- `docs/api/descriptives.md` — new `scatter3D` section with parameters,
+  examples, and R-port differences (no rgl; 2D projection only).
+- `docs/api/stats.md` — `eta_squared` updated to reflect per-term rows.
+- `docs/api/coverage.md` — new rows for per-term η²_p (✅) and
+  `scatter3D` (✅ for projections, ❌ for true 3D).
+- `docs/index.md` — section 8 updated with `scatter3D`.
 
 ## [0.7.4] - 2026-08-31
 
