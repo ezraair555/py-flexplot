@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import pytest
 import statsmodels.formula.api as smf
+import statsmodels.api as sm
 import warnings
 from plotnine import ggplot
 
@@ -253,6 +254,48 @@ def test_compare_fits_missing_predict():
     df = pd.DataFrame({"y": [1, 2, 3], "x": [1, 2, 3]})
     with pytest.raises(ValueError, match="predict method"):
         compare_fits("y ~ x", data=df, model1=None, model2=None)
+
+
+def test_compare_fits_return_preds_returns_dataframe():
+    """return_preds=True returns a DataFrame, not a plot."""
+    df = pd.DataFrame({
+        "y": np.random.normal(size=50),
+        "x": np.random.normal(size=50),
+    })
+    m1 = smf.ols("y ~ x", data=df).fit()
+    m2 = smf.ols("y ~ x", data=df).fit()
+    out = compare_fits(
+        "y ~ x", data=df, model1=m1, model2=m2,
+        return_preds=True,
+    )
+    assert isinstance(out, pd.DataFrame)
+    assert "__m1" in out.columns and "__m2" in out.columns
+    assert len(out) == len(df)
+
+
+def test_compare_fits_pred_type_link_for_glm():
+    """pred_type='link' returns linear-predictor scale for GLM models."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({
+        "y": rng.choice([0, 1], size=80),
+        "x": rng.normal(size=80),
+    })
+    glm = smf.glm("y ~ x", data=df, family=sm.families.Binomial()).fit()
+    # Response scale: probabilities in [0, 1].
+    p_resp = glm.predict(df)
+    # Link scale: log-odds, unbounded.
+    p_link = glm.predict(df, linear=True)
+    assert p_resp.min() >= 0 and p_resp.max() <= 1
+    # Link scale values should differ from response scale values.
+    out_resp = compare_fits(
+        "y ~ x", data=df, model1=glm, model2=glm,
+        return_preds=True, pred_type="response",
+    )
+    out_link = compare_fits(
+        "y ~ x", data=df, model1=glm, model2=glm,
+        return_preds=True, pred_type="link",
+    )
+    assert not np.allclose(out_resp["__m1"].values, out_link["__m1"].values)
 
 
 def test_added_plot_residual_alignment():

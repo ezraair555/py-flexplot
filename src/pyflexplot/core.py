@@ -866,10 +866,34 @@ def compare_fits(
     model1,
     model2,
     labels: List[str] = ["Model 1", "Model 2"],
+    return_preds: bool = False,
+    pred_type: str = "response",
     **kwargs,
 ):
     """
     Visually compare the fit of two different models (statsmodels/sklearn).
+
+    Parameters
+    ----------
+    formula, data, model1, model2, labels :
+        Existing arguments; see prior releases.
+    return_preds : bool, default False
+        When True, return the prediction DataFrame instead of the plot.
+        Columns: the formula's predictor(s), ``__y`` (the observed
+        response), and ``__pred1`` / ``__pred2`` (each model's
+        prediction). This matches R's ``compare.fits(..., return.preds=TRUE)``.
+    pred_type : {"response", "link"}, default "response"
+        Type of predictions passed to ``statsmodels`` for GLM models.
+        ``"response"`` returns the probability scale (default);
+        ``"link"`` returns the linear-predictor scale. Ignored for
+        non-GLM models. Matches R's ``compare.fits(..., pred.type=...)``.
+
+    Returns
+    -------
+    plotnine.ggplot OR pandas.DataFrame
+        When ``return_preds=False``, the comparison plot. When
+        ``return_preds=True``, a DataFrame with observed and predicted
+        values for both models.
     """
     variables = parse_flexplot_formula(formula)
     _validate_data_for_plot(formula, data, variables)
@@ -877,8 +901,8 @@ def compare_fits(
     y_name = variables["y"]
     x_name = variables["x"]
 
-    pred1 = _get_model_predictions(model1, data)
-    pred2 = _get_model_predictions(model2, data)
+    pred1 = _get_model_predictions(model1, data, pred_type=pred_type)
+    pred2 = _get_model_predictions(model2, data, pred_type=pred_type)
 
     if len(pred1) != len(data) or len(pred2) != len(data):
         raise ValueError(
@@ -889,6 +913,9 @@ def compare_fits(
     plot_df = data.copy()
     plot_df["__m1"] = pred1
     plot_df["__m2"] = pred2
+
+    if return_preds:
+        return plot_df
 
     p = (
         ggplot(plot_df, aes(x=x_name, y=y_name))
@@ -908,13 +935,36 @@ def compare_fits(
     return p
 
 
-def _get_model_predictions(model, data: pd.DataFrame) -> pd.Series:
-    """Return a pandas Series of predictions aligned to data.index."""
+def _get_model_predictions(
+    model,
+    data: pd.DataFrame,
+    pred_type: str = "response",
+) -> pd.Series:
+    """Return a pandas Series of predictions aligned to data.index.
+
+    Parameters
+    ----------
+    model : fitted model with ``predict`` method
+    data : pd.DataFrame
+        Predictor data.
+    pred_type : {"response", "link"}, default "response"
+        Passed through to ``statsmodels`` GLM ``predict``; controls
+        whether the prediction is on the response or link scale.
+        Ignored for non-GLM models.
+    """
     if hasattr(model, "predict"):
         try:
             # Statsmodels fitted models accept a DataFrame and return a Series
-            # indexed by the (possibly reduced) observation index.
-            pred = model.predict(data)
+            # indexed by the (possibly reduced) observation index. GLM models
+            # accept a ``linear`` kwarg to switch between response and link.
+            if hasattr(model, "model") and getattr(model, "model", None) is not None:
+                model_class = type(model).__name__.lower()
+                if "glm" in model_class:
+                    pred = model.predict(data, linear=(pred_type == "link"))
+                else:
+                    pred = model.predict(data)
+            else:
+                pred = model.predict(data)
         except Exception:
             # scikit-learn style: needs a 2-D array-like input.
             pred = model.predict(data.values)
