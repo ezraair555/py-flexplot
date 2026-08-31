@@ -277,6 +277,8 @@ def flexplot(
     ----------
     formula : str
         Flexplot formula of the form ``y ~ x [+ color] [| given1, given2]``.
+        R-style interaction syntax (``y ~ x*z``, ``y ~ x:z``) is also
+        accepted since v0.6.2; see Notes below.
     data : pd.DataFrame
         Non-empty data frame holding the referenced columns.
     method : {"auto", "lm", "loess"}
@@ -301,27 +303,47 @@ def flexplot(
         - ``label`` (optional, default = ``method``): legend label.
         - ``uncertainty`` (optional, default ``"ci"``): per-overlay band type.
         - ``level`` (optional, default 0.95): per-overlay band coverage.
-
-        Example::
-
-            flexplot(
-                "y ~ x", data=df,
-                overlay=[
-                    {"method": "loess", "label": "LOESS smoother"},
-                    {"method": "rlm", "label": "Robust regression"},
-                ],
-            )
-
-        Lets the user visually compare multiple smoothers in a single chart
-        so they can SEE which fit the data prefers.
     **kwargs
         Reserved for future extension.
+
+    Returns
+    -------
+    plotnine.ggplot
+        The composed plot object. Call ``.draw()`` to render or ``.save()``
+        to write to disk.
 
     Notes
     -----
     For the numeric-vs-binary branch (binomial GLM), the band is always drawn
     on the response (probability) scale; plotnine handles the inverse-link
-    transformation internally.
+    transformation internally. Numeric binary ``[0, 1]`` y (v0.6.1+) and
+    string binary y both route to the binomial branch.
+
+    Interaction syntax (``*``, ``:``) is parsed since v0.6.2 but the v0.6.x
+    fit remains additive. A ``UserWarning`` is emitted whenever interaction
+    syntax is detected; v0.7.0 will add ``interaction_model=True`` for true
+    non-parallel slopes.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from pyflexplot import flexplot
+    >>> rng = np.random.default_rng(0)
+    >>> df = pd.DataFrame({"x": rng.normal(size=100), "y": rng.normal(size=100)})
+    >>> p = flexplot("y ~ x", data=df)  # doctest: +SKIP
+    >>> p.draw()  # doctest: +SKIP
+
+    With uncertainty bands:
+
+    >>> p = flexplot("y ~ x", data=df, bands=[0.5, 0.8, 0.95])  # doctest: +SKIP
+
+    With overlay smoothers:
+
+    >>> p = flexplot(
+    ...     "y ~ x", data=df,
+    ...     overlay=[{"method": "loess", "label": "LOESS smoother"}],
+    ... )  # doctest: +SKIP
     """
     if method not in _VALID_FLEXPLOT_METHODS:
         raise ValueError(

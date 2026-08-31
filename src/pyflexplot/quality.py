@@ -195,6 +195,34 @@ def diagnose(
     ------
     ValueError
         If the formula has no outcome or no predictors.
+
+    Examples
+    --------
+    Verbose (prints to stdout, returns the dict):
+
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from pyflexplot.quality import diagnose
+    >>> rng = np.random.default_rng(0)
+    >>> df = pd.DataFrame({
+    ...     "y": rng.normal(size=200),
+    ...     "x": rng.normal(size=200),
+    ... })
+    >>> diag = diagnose("y ~ x", data=df)  # doctest: +SKIP
+
+    Quiet (returns the dict without printing):
+
+    >>> diag = diagnose("y ~ x", data=df, verbose=False)
+    >>> diag["linearity"]["reject_linearity"]
+    False
+
+    Notes
+    -----
+    Designed to surface *why* a fit might be off, not to gate-keep model
+    usage. All test statistics and p-values are returned alongside the
+    plain-English interpretation so users can drill in themselves. The
+    pattern heuristic (`` none`` / ``concentrated`` / ``spread``) is a
+    rough first cut; for missing-data formal tests, see ``statsmodels``.
     """
     from .core import parse_flexplot_formula
 

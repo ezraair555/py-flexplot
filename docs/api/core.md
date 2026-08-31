@@ -6,7 +6,7 @@ The core of `py-flexplot` is the `flexplot` function, which uses a formula-based
 
 ```python
 from pyflexplot import flexplot
-p = flexplot(formula, data, method="auto")
+p = flexplot(formula, data, method="auto", uncertainty="ci", level=0.95)
 ```
 
 ### Parameters
@@ -15,14 +15,89 @@ p = flexplot(formula, data, method="auto")
   - `x`: The primary predictor (x-axis).
   - `color`: (Optional) Second predictor mapped to color and grouping.
   - `panel`: (Optional) Variables after `|` used for faceting (row/column panels).
+  - **R-style interaction syntax** (v0.6.2+): `y ~ x*z` expands to `y ~ x + z + x:z` for column lookup; `y ~ x:z` is also accepted. Numeric binary `[0, 1]` y routes to the binomial GLM branch (v0.6.1+). See [Interactions](#interactions) below.
 - **data** (pd.DataFrame): The dataset to plot.
-- **method** (str): The smoothing method. Options: `"auto"`, `"lm"` (linear model), `"loess"` (locally weighted regression).
+- **method** (str): The smoothing method for the numeric-vs-numeric branch. Options: `"auto"`, `"lm"` (linear model), `"loess"` (locally weighted regression).
+- **uncertainty** (str, v0.4.0+): `{None, "ci", "prediction", "bootstrap"}`, default `"ci"`. Type of uncertainty band around the fitted line.
+  - `None`: no fit, just the scatter.
+  - `"ci"`: confidence interval on the mean response (plotnine built-in).
+  - `"prediction"`: residual-based prediction interval on new observations (LM only).
+  - `"bootstrap"`: case-resampled CI (loess only; `n_resamples=200`).
+- **level** (float, v0.4.0+): Coverage probability for a single band, default `0.95`. Ignored when `bands` is given.
+- **bands** (list of float, v0.4.0+): Nested coverage levels (e.g., `[0.5, 0.8, 0.95]`) for Tufte-style multi-ribbon display. Overrides `level` when provided.
+- **overlay** (list, v0.5.0+): Additional smoothers to overlay on the same axes. Each entry is a method name (`"lm"`, `"loess"`, `"rlm"`, ...) or a dict with `method`, `color`, `label`, `uncertainty`, `level`. See [Overlay](#overlay) below.
 
 ### Intelligent Mapping
 - **Numeric y ~ Numeric x**: Scatterplot + trend line.
 - **Numeric y ~ Categorical x**: Jittered dot plot + bootstrapped means/CIs.
-- **Categorical y ~ Numeric x**: Scatterplot + logistic regression curve.
+- **Numeric binary `[0, 1]` y ~ Numeric x** (v0.6.1+): Scatterplot + binomial GLM (logistic curve) — even when y is `int`/`float`, the binary pre-check routes to the binomial branch.
+- **Non-numeric y ~ Numeric x** (e.g., string `["yes","no"]`): Scatterplot + binomial GLM.
 - **Categorical y ~ Categorical x**: Jittered dot plot of counts.
+
+### Examples
+
+```python
+import pandas as pd
+import numpy as np
+from pyflexplot import flexplot
+
+rng = np.random.default_rng(0)
+df = pd.DataFrame({"x": rng.normal(size=200), "y": rng.normal(size=200)})
+
+# Basic numeric-vs-numeric plot with default uncertainty.
+flexplot("y ~ x", data=df)
+
+# Multiple nested uncertainty bands (Tufte-style).
+flexplot("y ~ x", data=df, bands=[0.5, 0.8, 0.95])
+
+# Overlay multiple smoothers on the same chart.
+flexplot(
+    "y ~ x", data=df,
+    overlay=[
+        {"method": "loess", "label": "LOESS smoother"},
+        {"method": "rlm",   "label": "Robust regression"},
+    ],
+)
+
+# Disable the fit (scatter only).
+flexplot("y ~ x", data=df, uncertainty=None)
+```
+
+### <a name="overlay"></a>Overlay
+
+The `overlay` parameter adds additional smoothers on top of the primary
+`method`. Useful for visually comparing fits side-by-side (e.g., LM vs LOESS
+vs robust regression):
+
+```python
+flexplot(
+    "y ~ x", data=df,
+    overlay=[
+        "loess",                       # default color, default ci
+        {"method": "rlm", "color": "#ff7f0e", "label": "Robust"},
+        {"method": "lm",  "level": 0.80, "label": "Linear (80%)"},
+    ],
+)
+```
+
+If any overlay entry has an explicit `label`, a manual color scale is added
+so the legend distinguishes the primary smoother from each overlay. The
+binomial branch restricts overlay to `method="glm"` (other methods raise).
+
+### <a name="interactions"></a>Interactions (v0.6.2+)
+
+Formulas accept R-style interaction syntax:
+
+| Syntax | Parsed as |
+|--------|-----------|
+| `y ~ x + z` | additive model, `x` and `z` as separate predictors |
+| `y ~ x*z` | expanded to `x + z + x:z`; column lookup uses `x` and `z` |
+| `y ~ x:z` | interaction term only (no main effects); first atom `x` used as the x-axis variable |
+
+The v0.6.x fit remains **additive** (parallel slopes per color group). A
+`UserWarning` is emitted whenever `*` or `:` appears in the formula so users
+aren't misled. v0.7.0 will add `interaction_model=True` for true non-parallel
+slopes.
 
 ---
 
@@ -47,4 +122,52 @@ Visually compare how well two different models fit the data by overlaying their 
 from pyflexplot import compare_fits
 p = compare_fits(formula, data, model1, model2)
 ```
-*(Implementation in progress)*
+
+For comparing multiple *smoothers* (not pre-fit models), use `flexplot(..., overlay=[...])` instead — see the Overlay section above.
+
+---
+
+## `diagnose` (v0.6.0+)
+
+```python
+from pyflexplot import diagnose
+diag = diagnose("y ~ x + z", data=df)        # verbose=True prints to stdout
+diag = diagnose("y ~ x + z", data=df, verbose=False)
+```
+
+Run a data-quality diagnostic on a flexplot formula + data. Surfaces:
+
+- **Missingness**: per-column counts and pattern heuristic (`none` /
+  `concentrated (likely MNAR/MAR)` / `spread (likely MCAR)`).
+- **Outliers**: Cook's distance count and threshold (default `4/n`).
+- **Linearity**: Ramsey RESET test for functional-form misspecification.
+- **Heteroscedasticity**: Breusch-Pagan test for non-constant variance.
+
+Returns a structured `dict`; pass `verbose=True` for a one-paragraph
+terminal/email/log summary. See `pyflexplot.quality.diagnose` for details.
+
+### Example
+
+```python
+from pyflexplot import diagnose, format_summary
+
+df = pd.DataFrame({"y": rng.normal(size=200), "x": rng.normal(size=200)})
+diag = diagnose("y ~ x", data=df, verbose=False)
+print(format_summary(diag))
+```
+
+---
+
+## Uncertainty helpers (v0.4.0+)
+
+```python
+from pyflexplot.uncertainty import (
+    compute_bootstrap_ci,
+    compute_prediction_band,
+    format_band_label,
+    validate_uncertainty_params,
+    VALID_UNCERTAINTY,
+)
+```
+
+Public helpers used internally by `flexplot()` but also usable directly.

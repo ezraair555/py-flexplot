@@ -94,9 +94,40 @@ walk-through of the new functionality.
 - **Formula Syntax**: Uses `y ~ x + z | a` to automatically determine plot types.
 - **Model Visualization**: Directly `visualize(model)` to see predicted vs actuals.
 - **Model Comparison**: Use `compare_fits(formula, data, m1, m2)` to see performance side-by-side.
+- **Uncertainty Layers (v0.4.0+)**: First-class confidence / prediction / bootstrap bands around every fitted line via `uncertainty=`, `level=`, and `bands=` on `flexplot()`. Pick the band type that fits your modeling claim.
+- **Model-Compare Overlay (v0.5.0+)**: Overlay multiple smoothers (`lm`, `loess`, `rlm`, etc.) on the same chart via `overlay=...` so the user can *see* which fit the data prefers.
+- **Auto Data-Quality Diagnostics (v0.6.0+)**: `diagnose("y ~ x + z", data)` runs missingness / Cook's distance / Ramsey RESET / Breusch-Pagan and prints a one-paragraph summary of why your fit might be off.
+- **R-Style Interaction Syntax (v0.6.2+)**: Formulas accept `y ~ x*z` and `y ~ x:z` (parsed, validated, with a `UserWarning` noting that the v0.6.x fit is additive; v0.7.0 will add `interaction_model=True`).
 - **Neural-Network Integration (torch + Keras 3)**: Wrap a fitted `torch.nn.Module` or `keras.Model` with `NeuralNetFit` to drop it into `compare_fits` next to a statsmodels fit. Keras 3 models are evaluated with `training=False` so Dropout/BatchNorm behave deterministically; torch models use `torch.no_grad()`. `permutation_importance()` provides column-shuffling variable ranking that works against either backend.
 - **Synthetic Data Generation**: `mixed_model(...)` produces clustered data with fixed + random effects for demos, teaching, and power analyses. `estimate_sd(mean, min, max)` recovers an SD from a known range.
 - **Biostats Utilities**: Ported functions from `fifer` for common statistical tasks.
+
+## Typical workflow (v0.6.x)
+
+```python
+import pandas as pd
+from pyflexplot import flexplot, diagnose
+
+df = pd.read_csv("data.csv")
+
+# 1. Diagnose the model fit before plotting.
+diag = diagnose("y ~ x + z", data=df)
+
+# 2. Plot with uncertainty bands and overlay competing smoothers.
+p = flexplot(
+    "y ~ x + z", data=df,
+    uncertainty="ci",        # or "prediction" / "bootstrap"
+    level=0.95,
+    bands=[0.5, 0.8, 0.95],  # nested ribbons (Tufte-style)
+    overlay=[
+        {"method": "loess", "label": "LOESS smoother"},
+        {"method": "rlm",   "label": "Robust regression"},
+    ],
+)
+p.draw()
+```
+
+See `docs/examples/diagnostics_workflow.md` for a longer walk-through.
 
 ## Continuous Integration
 
@@ -117,6 +148,21 @@ each runs in its own clean environment:
 All workflows upload coverage via `pytest-cov`.
 
 ## Changelog
+
+### 0.6.2 (2026-08-30)
+- **R-style interaction syntax accepted by the formula parser.** `y ~ x*z` and `y ~ x:z` no longer raise "missing column"; the parser expands `*` to `+` + `:` for column lookup and preserves interaction terms in `all_x`. `flexplot()` emits a `UserWarning` reminding the user that v0.6.x fits remain additive; v0.7.0 will add `interaction_model=True`. 6 new tests in `tests/test_core.py`.
+
+### 0.6.1 (2026-08-30)
+- **Fixed dead binomial branch in `flexplot()`.** `pd.api.types.is_numeric_dtype([0, 1])` returns True, so int/float binary y was always routed to the LM/loess branch and the binomial GLM branch was unreachable. Added a binary pre-check that detects unique values ⊆ {0, 1} *before* the numeric-dtype dispatch. Numeric `[0, 1]` y now draws a sigmoid curve (was a straight LM line); string `["yes", "no"]` and multi-level numeric `[0, 1, 2]` behavior unchanged. 3 new tests + 1 updated regression test.
+
+### 0.6.0 (2026-08-30)
+- **`diagnose(formula, data)` — auto data-quality diagnostics.** Runs missingness (per-column counts and pattern heuristic), Cook's distance for outliers (default `4/n`), Ramsey RESET for functional form, and Breusch-Pagan for heteroscedasticity. Returns a structured dict; pass `verbose=True` for a one-paragraph terminal/email/log summary. New module `pyflexplot.quality`. 19 new tests.
+
+### 0.5.0 (2026-08-30)
+- **`overlay` parameter on `flexplot()`.** Overlay multiple smoothers (`lm`, `loess`, `rlm`, `glm`, ...) on the same axes with per-smoother uncertainty bands. Each entry takes a `color` (cycles through a 5-color palette) and optional `label` / `uncertainty` / `level`. When any entry has a `label`, a manual color scale adds a legend. The binomial branch restricts overlay to `method="glm"`; other methods raise. 14 new tests.
+
+### 0.4.0 (2026-08-30)
+- **`uncertainty` parameter on `flexplot()`.** First-class confidence / prediction / bootstrap bands around every fitted line. New module `pyflexplot.uncertainty` exposes `validate_uncertainty_params`, `compute_bootstrap_ci`, `compute_prediction_band`, `format_band`.`..- 35 new tests, full suite 199 passed / 1 skipped (keras not installed), no regressions.
 
 ### 0.3.0 (2026-08-28)
 - **`visualize()` now accepts `NeuralNetFit` wrappers** (DESIGN-7 from the v0.2.2 review). The duck-type dispatch avoids importing `flex_nn` at module load time, so the core module stays cheap when neural-net support isn't needed. The output mirrors the statsmodels `visualize()`: predicted-vs-actual line on top of a scatter. 7 new tests in `tests/test_design_followups.py::TestVisualizeNeuralNetFit`.

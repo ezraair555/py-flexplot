@@ -44,6 +44,7 @@ interactions, and polynomial terms.  Ideal for teaching and demos.
 ## Examples & Case Studies
 
 - **[Titanic Survival Analysis](examples/titanic.md)** (Visual Walkthrough with Plots)
+- **[Diagnostic + Visualization Workflow](examples/diagnostics_workflow.md)** (v0.6.x: `diagnose()` + uncertainty bands + overlay)
 - **[Quickstart Notebook](../notebooks/quickstart.ipynb)** (Interactive Exploration)
 - **[Biostatistics & Empirical Bayes](../examples/notebooks/stats_and_eb.ipynb)** (Data Cleanup and Shrinkage)
 - **[flex_nn + bluepill Walk-through](../examples/notebooks/flex_nn_example.ipynb)** (Neural-network wrappers and synthetic data generation)
