@@ -298,7 +298,7 @@ def _maybe_bin_numeric_x(
     return out, True
 
 
-_VALID_SPREAD = frozenset({None, "stdev", "range", "iqr", "no", "ci"})
+_VALID_SPREAD = frozenset({None, "stdev", "range", "iqr", "no", "ci", "quartiles", "sterr"})
 
 
 def _add_discrete_summary(p, spread: Optional[str]):
@@ -318,11 +318,19 @@ def _add_discrete_summary(p, spread: Optional[str]):
             f"got {spread!r}."
         )
 
+    # R-token aliases (v0.8.0): "quartiles" == "iqr"; "sterr" == "ci".
+    # Python legacy default None ≡ "ci" (bootstrap CI via stat_summary).
+    if spread is None:
+        spread = "ci"
+    elif spread == "quartiles":
+        spread = "iqr"
+    elif spread == "sterr":
+        spread = "ci"
+
     if spread == "no":
         return p
 
-    if spread is None or spread == "ci":
-        # Legacy default: bootstrap CI via stat_summary.
+    if spread == "ci":
         p += stat_summary(fun_data="mean_cl_boot", color="red", size=1)
         return p
 
@@ -375,7 +383,7 @@ def _make_spread_fn(center_fn, spread_fn):
     return _f
 
 
-_VALID_FLEXPLOT_METHODS = frozenset({"auto", "lm", "loess", "polynomial", "cubic", "logistic"})
+_VALID_FLEXPLOT_METHODS = frozenset({"auto", "lm", "loess", "polynomial", "cubic", "logistic", "rlm", "glm"})
 
 # Recognized methods for overlay entries. Includes a broader set than the
 # primary ``method`` parameter because plotnine/statsmodels supports more
@@ -489,6 +497,9 @@ def flexplot(
     plot_string=None,
     related: bool = False,
     interaction_model: bool = False,
+    jitter: Optional[Union[bool, List[float]]] = None,
+    alpha: Optional[float] = None,
+    raw_data: bool = True,
     **kwargs,
 ):
     """Intelligent multivariate graphics via formulas.
@@ -815,6 +826,31 @@ def flexplot(
     else:
         skip_dispatch = False
 
+    # --- jitter / alpha / raw_data resolution (v0.8.0, R-parity) ---
+    # jitter: None -> legacy widths; True -> (0.1, 0.1); list/tuple of 2 ->
+    #   those values; False -> (0, 0) (use plain points).
+    if jitter is None:
+        jitter_xy = (0.2, 0.2)
+    elif isinstance(jitter, bool):
+        jitter_xy = (0.1, 0.1) if jitter else (0.0, 0.0)
+    elif isinstance(jitter, (list, tuple)) and len(jitter) == 2:
+        jitter_xy = (float(jitter[0]), float(jitter[1]))
+    else:
+        raise ValueError(
+            "jitter must be None, a bool, or a length-2 list/tuple "
+            "(x-width, y-width); got {jitter!r}.".format(jitter=jitter)
+        )
+    # alpha: None -> per-branch legacy defaults (0.3 binary, 0.5 otherwise);
+    # float in (0, 1] overrides everywhere.
+    if alpha is not None:
+        if not isinstance(alpha, (int, float)) or not (0 < alpha <= 1):
+            raise ValueError(
+                f"alpha must be a float in (0, 1]; got {alpha!r}."
+            )
+        alpha_point = alpha
+    else:
+        alpha_point = 0.3 if y_is_binary else 0.5
+
     # Determine plot type.
     # Order matters:
     #   1. Binary 0/1 y must be detected before the generic numeric branch
@@ -823,7 +859,8 @@ def flexplot(
     #      with <=10 unique values; post-05ac368 R-flexplot parity).
     if not skip_dispatch and y_is_binary and not is_x_discrete:
         # Binomial GLM branch — numeric binary outcome with numeric x.
-        p += geom_point(alpha=0.3)
+        if raw_data:
+            p += geom_point(alpha=alpha_point)
         p = _add_binomial_smooth(p, data, x, y, uncertainty, level, bands)
         if overlay_specs:
             p = _add_overlay_binomial(p, data, x, y, overlay_specs)
@@ -844,13 +881,15 @@ def flexplot(
                 f"Binomial smoothing requires a binary 0/1 outcome; {y!r} has "
                 f"unique values: {sorted(unique_y)}"
             )
-        p += geom_point(alpha=0.3)
+        if raw_data:
+            p += geom_point(alpha=alpha_point)
         p = _add_binomial_smooth(p, data, x, y, uncertainty, level, bands)
         if overlay_specs:
             p = _add_overlay_binomial(p, data, x, y, overlay_specs)
 
     elif not skip_dispatch and is_y_numeric and not is_x_discrete:
-        p += geom_point(alpha=0.5)
+        if raw_data:
+            p += geom_point(alpha=alpha_point)
         if interaction_model and variables.get("has_interaction") and color:
             # Non-parallel slopes per color group via statsmodels OLS with
             # the actual interaction term (e.g. y ~ x * color). v0.7.0+.
@@ -866,11 +905,17 @@ def flexplot(
             p = _add_overlay_numeric(p, data, x, y, overlay_specs)
 
     elif not skip_dispatch and is_y_numeric and is_x_discrete:
-        p += geom_jitter(width=0.2, alpha=0.5)
+        if raw_data and jitter_xy[0] > 0:
+            p += geom_jitter(width=jitter_xy[0], alpha=alpha_point)
+        elif raw_data:
+            p += geom_point(alpha=alpha_point)
         p = _add_discrete_summary(p, spread)
 
     elif not skip_dispatch:
-        p += geom_jitter(width=0.2, height=0.2, alpha=0.5)
+        if raw_data and jitter_xy != (0.0, 0.0):
+            p += geom_jitter(width=jitter_xy[0], height=jitter_xy[1], alpha=alpha_point)
+        elif raw_data:
+            p += geom_point(alpha=alpha_point)
 
     if len(given) == 1:
         p += facet_wrap(f"~{given[0]}")
@@ -924,23 +969,89 @@ def flexplot(
     # mark the slope=1 reference for prediction-vs-observed plots.
     # Both are drawn as geom_hline (horizontal), so they're 1D references
     # at y=0. For diagonal references (slope=1), future work.
+    # --- ghost.line (v0.8.0, R-parity) ---
+    # R semantics: ghost.line is the COLOR of a line fit on a reference
+    # panel that is repeated into every other panel (cross-panel
+    # comparison). Python-only extensions kept: "slope1" (diagonal abline).
+    # When the formula has NO `given` facets, the legacy Python behavior
+    # applies: "red"/"dashed" -> y=0 hline; "slope1" -> y=x abline.
     if ghost_line is not None:
-        if ghost_line not in {"red", "dashed", "slope1"}:
-            raise ValueError(
-                f"ghost_line must be 'red', 'dashed', 'slope1', or None; "
-                f"got {ghost_line!r}."
+        if not isinstance(ghost_line, str):
+            raise TypeError(
+                f"ghost_line must be a color string, 'slope1', or None; "
+                f"got {type(ghost_line).__name__}."
             )
-        if ghost_line == "red":
-            p += geom_hline(yintercept=0, color="red")
-        elif ghost_line == "dashed":
-            p += geom_hline(yintercept=0, color="black", linetype="dashed")
-        elif ghost_line == "slope1":
-            # Diagonal slope=1 reference line for prediction-vs-observed
-            # plots. R-flexplot draws this for ghost.line="dashed" on
-            # visualize(); we expose it under a separate value so the
-            # legacy "dashed" semantics (horizontal) aren't broken.
-            from plotnine import geom_abline
-            p += geom_abline(intercept=0, slope=1, color="black", linetype="dashed")
+        if len(given) >= 1:
+            # R-parity path: fit y ~ x on the reference subset and repeat
+            # the predicted line into every panel, drawn in ghost_line's
+            # color. Reference selection via ghost_reference dict
+            # ({given_var: level}) or the first level of the first given
+            # variable when absent.
+            if x is None or is_x_discrete:
+                # Ghost lines are only defined for numeric x fits.
+                if not isinstance(ghost_line, str):
+                    raise TypeError("ghost_line must be a string.")
+            ref_df = plot_input_df
+            if ghost_reference is not None:
+                if isinstance(ghost_reference, pd.DataFrame):
+                    # DataFrame overlay path (legacy) is handled AFTER this
+                    # block; dicts drive panel-referencing here.
+                    ref_df = None
+                elif isinstance(ghost_reference, dict):
+                    for var, val in ghost_reference.items():
+                        if var not in plot_input_df.columns:
+                            raise ValueError(
+                                f"ghost_reference key {var!r} is not a "
+                                f"data column."
+                            )
+                        mask = plot_input_df[var] == val
+                        if not mask.any():
+                            # Nearest-match fallback for numeric refs.
+                            if pd.api.types.is_numeric_dtype(plot_input_df[var]):
+                                idx = (plot_input_df[var] - val).abs().idxmin()
+                                mask = plot_input_df[var] == plot_input_df.loc[idx, var]
+                            else:
+                                mask = plot_input_df[var] == plot_input_df[var].iloc[0]
+                        ref_df = plot_input_df[mask]
+                else:
+                    raise TypeError(
+                        "ghost_reference must be None, a dict "
+                        "({given_var: level}) for panel reference selection, "
+                        "or a DataFrame for overlay; got "
+                        f"{type(ghost_reference).__name__}."
+                    )
+            if ref_df is not None and len(ref_df) > 1 and pd.api.types.is_numeric_dtype(ref_df[x]):
+                gx = ref_df[x].to_numpy(dtype=float)
+                gy = ref_df[y].to_numpy(dtype=float)
+                if np.isfinite(gx).all() and np.isfinite(gy).all():
+                    _X = np.column_stack([np.ones_like(gx), gx])
+                    _m = OLS(gy, _X).fit()
+                    _x_eval = np.linspace(np.nanmin(gx), np.nanmax(gx), num=200)
+                    _y_eval = _m.predict(np.column_stack([np.ones_like(_x_eval), _x_eval]))
+                    ghost_df = pd.DataFrame({x: _x_eval, y: _y_eval})
+                    p += geom_line(
+                        aes(y=y),
+                        data=ghost_df,
+                        color=ghost_line,
+                        linetype="dashed",
+                        inherit_aes=False,
+                    )
+        else:
+            # No facets: legacy y=0 / slope=1 references.
+            if ghost_line not in {"red", "dashed", "slope1"}:
+                raise ValueError(
+                    f"Without `| given` facets, ghost_line must be 'red', "
+                    f"'dashed', 'slope1', or None; got {ghost_line!r}. "
+                    f"Panel-repetition (R parity) requires a facet in the "
+                    f"formula."
+                )
+            if ghost_line == "red":
+                p += geom_hline(yintercept=0, color="red")
+            elif ghost_line == "dashed":
+                p += geom_hline(yintercept=0, color="black", linetype="dashed")
+            elif ghost_line == "slope1":
+                from plotnine import geom_abline
+                p += geom_abline(intercept=0, slope=1, color="black", linetype="dashed")
 
     # --- Optional ghost.reference overlay (v0.6.6+) ---
     # R-flexplot accepts ghost.reference as a DataFrame to overlay on the
@@ -952,18 +1063,34 @@ def flexplot(
     # We detect the pattern by checking if the DataFrame has columns
     # [x, y] or [x, "pred"].
     if ghost_reference is not None:
-        if not isinstance(ghost_reference, pd.DataFrame):
+        # Dict form ({given_var: level}) was consumed by the ghost.line
+        # panel-reference path above; only DataFrames reach this legacy
+        # overlay path.
+        if isinstance(ghost_reference, dict):
+            # Dict = panel-reference selector, consumed by the ghost.line
+            # block above. Here we only validate the facet requirement.
+            if len(given) == 0:
+                raise TypeError(
+                    "ghost_reference dict requires a `| given` facet in the "
+                    "formula (it selects the reference panel)."
+                )
+        elif isinstance(ghost_reference, pd.DataFrame):
+            pass  # DataFrame overlay handled below.
+        else:
             raise TypeError(
-                f"ghost_reference must be a pandas DataFrame or None; "
-                f"got {type(ghost_reference).__name__}."
+                f"ghost_reference must be None, a dict (panel reference), "
+                f"or a pandas DataFrame (overlay); got "
+                f"{type(ghost_reference).__name__}."
             )
-        if x not in ghost_reference.columns:
+        if isinstance(ghost_reference, pd.DataFrame) and x not in ghost_reference.columns:
             raise ValueError(
                 f"ghost_reference DataFrame must have column {x!r} "
                 f"(matching x in the formula); got columns "
                 f"{list(ghost_reference.columns)}."
             )
-        if "pred" in ghost_reference.columns:
+        if isinstance(ghost_reference, dict):
+            pass  # dict refs don't carry overlay columns
+        elif "pred" in ghost_reference.columns:
             # Prediction-line pattern: geom_line in red.
             p += geom_line(
                 aes(y="pred"),

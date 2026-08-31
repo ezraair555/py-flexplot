@@ -401,8 +401,11 @@ def _r_squared_ci(r2: float, df_model: int, nobs: int, level: float = 0.95):
     return (rho_lo, rho_hi)
 
 
-def estimates(model):
+def estimates(model, mc: bool = True):
     """
+    R-parity note (v0.8.0): ``mc`` mirrors R's estimates(mc=) — when False,
+    comparison-dependent outputs (``semi.p.r2``, ``mean_differences``) are
+    skipped (set to None). Factor-level estimates still compute.
     Compute a structured effect-size report for a fitted OLS model.
 
     A port of R's ``fifer::estimates()`` / ``flexplot::estimates.lm()``.
@@ -526,9 +529,12 @@ def estimates(model):
     # --- Semi-partial R-squared per predictor ----------------------------
     # Approach: drop one predictor at a time and measure the R-squared
     # drop from the full model. semi.p.r2[j] = R2(full) - R2(reduced j).
+    # Gated on mc= (R's 'should model comparisons be performed');
+    # comparison-dependent outputs are skipped when mc=False.
     semi_p: Dict[str, float] = {}
     if (
-        frame is not None
+        mc
+        and frame is not None
         and isinstance(formula_str, str)
         and " ~ " in formula_str
         and len(coef_names) > 1
@@ -556,11 +562,13 @@ def estimates(model):
     numbers: List[str] = []
     if frame is not None:
         import re as _re
+        seen = set()
         for term in coef_names:
             # Strip C(...) and [T.x] / [level] annotations that
             # statsmodels uses to denote categorical terms.
             base = _re.sub(r"^C\(([^)]+)\).*$", r"\1", term)
-            if base in frame.columns:
+            if base in frame.columns and base not in seen:
+                seen.add(base)
                 col = frame[base]
                 if (
                     col.dtype == object
@@ -572,6 +580,117 @@ def estimates(model):
                     numbers.append(base)
     out["factors"] = factors
     out["numbers"] = numbers
+
+    # --- Factor-level estimates + mean differences (v0.8.0, R-parity) ---
+    # R's estimates() prints two additional tables for factor predictors:
+    #   - "Estimates for Factors": per-level fitted means (holding other
+    #     predictors at reference values) with CIs.
+    #   - "Mean Differences": pairwise level contrasts with CIs and
+    #     Cohen's d.
+    factor_estimates_df = None
+    mean_diff_df = None
+    if frame is not None and factors and hasattr(model, "get_prediction"):
+        try:
+            alpha_ci = 0.05
+            _outcome_name = None
+            if formula_str is not None and isinstance(formula_str, str) and " ~ " in formula_str:
+                _outcome_name = formula_str.split(" ~ ", 1)[0].strip()
+            if _outcome_name is None or _outcome_name not in frame.columns:
+                _outcome_name = None
+
+            def _level_param_vector(base: str, level) -> Dict[str, float]:
+                """Indicator vector over params for C(base)[T.level]."""
+                candidates = [n for n in model.params.index if n.startswith(f"C({base})[")]
+                vec = {n: 0.0 for n in model.params.index}
+                if f"C({base})[T.{level}]" in candidates:
+                    vec[f"C({base})[T.{level}]"] = 1.0
+                return vec
+
+            levels_by_base: Dict[str, list] = {}
+            for base in factors:
+                col = frame[base]
+                levels_by_base[base] = sorted(col.dropna().unique().tolist())
+
+            # Reference row: numeric -> mean; factor -> first level.
+            def _base_row() -> Dict[str, object]:
+                row: Dict[str, object] = {}
+                for c in frame.columns:
+                    col = frame[c]
+                    if pd.api.types.is_numeric_dtype(col):
+                        row[c] = float(col.mean())
+                    else:
+                        row[c] = col.dropna().unique()[0] if col.dropna().size else None
+                return row
+
+            est_rows = []
+            diff_rows = []
+            for base in factors:
+                if base not in frame.columns:
+                    continue
+                ref_level = levels_by_base[base][0]
+                # 1) Per-level fitted means via get_prediction grid.
+                level_means = {}
+                for level in levels_by_base[base]:
+                    grid = _base_row()
+                    if grid is None:
+                        break
+                    grid[base] = level
+                    grid_df = pd.DataFrame([grid])
+                    pred = model.get_prediction(grid_df)
+                    sf = pred.summary_frame(alpha=alpha_ci)
+                    est_rows.append({
+                        "variable": base,
+                        "level": level,
+                        "estimate": float(sf["mean"].iloc[0]),
+                        "ci.lower": float(sf["mean_ci_lower"].iloc[0]),
+                        "ci.upper": float(sf["mean_ci_upper"].iloc[0]),
+                    })
+                    level_means[level] = float(sf["mean"].iloc[0])
+
+                # 2) Pairwise contrasts with CI via param contrast vectors.
+                params_vec = np.asarray(model.params)
+                cov = np.asarray(model.cov_params())
+                df_resid = float(getattr(model, "df_resid", np.nan))
+                for i, l1 in enumerate(levels_by_base[base]):
+                    for l2 in levels_by_base[base][i + 1:]:
+                        v1 = _level_param_vector(base, l1)
+                        v2 = _level_param_vector(base, l2)
+                        contrast = np.array([v1.get(n, 0.0) - v2.get(n, 0.0)
+                                             for n in model.params.index])
+                        diff = float(contrast @ params_vec)
+                        se = float(np.sqrt(contrast @ cov @ contrast))
+                        t_crit = stats.t.ppf(0.975, df_resid) if df_resid == df_resid else 1.96
+                        # Cohen's d: diff / pooled within-level SD of raw y.
+                        if _outcome_name is None:
+                            y1 = y2 = pd.Series(dtype=float)
+                        else:
+                            y1 = frame.loc[frame[base] == l1, _outcome_name].dropna()
+                            y2 = frame.loc[frame[base] == l2, _outcome_name].dropna()
+                        if len(y1) > 1 and len(y2) > 1:
+                            s1, s2 = y1.std(ddof=1), y2.std(ddof=1)
+                            n1, n2 = len(y1), len(y2)
+                            pooled = float(np.sqrt(((n1 - 1) * s1 ** 2 + (n2 - 1) * s2 ** 2) / (n1 + n2 - 2))) if (n1 + n2 - 2) > 0 else np.nan
+                        else:
+                            pooled = float("nan")
+                        cohens_d = diff / pooled if pooled and not np.isnan(pooled) and pooled != 0 else float("nan")
+                        diff_rows.append({
+                            "variable": base,
+                            "comparison": f"{l1} - {l2}",
+                            "difference": diff,
+                            "ci.lower": diff - t_crit * se,
+                            "ci.upper": diff + t_crit * se,
+                            "cohens.d": cohens_d,
+                        })
+
+            if est_rows:
+                factor_estimates_df = pd.DataFrame(est_rows)
+            if diff_rows:
+                mean_diff_df = pd.DataFrame(diff_rows)
+        except Exception:
+            factor_estimates_df = None
+            mean_diff_df = None
+    out["factor_estimates"] = factor_estimates_df
+    out["mean_differences"] = mean_diff_df if mc else None
 
     return out
 
@@ -639,7 +758,8 @@ def standardized_beta(model):
         if sd_y == 0 or not np.isfinite(sd_x) or sd_x == 0:
             out[name] = np.nan
         else:
-            out[name] = float(model.params[i] * sd_x / sd_y)
+            param_i = model.params.iloc[i] if hasattr(model.params, "iloc") else model.params[i]
+            out[name] = float(param_i * sd_x / sd_y)
     return pd.Series(out, dtype=float)
 
 
