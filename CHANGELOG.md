@@ -5,6 +5,15 @@ All notable changes to py-flexplot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Recent highlights
+
+- **0.6.2** — R-style interaction syntax (`y ~ x*z`, `y ~ x:z`) accepted by the formula parser; `flexplot()` emits a `UserWarning` when interaction syntax is present (v0.7.0 will add `interaction_model=True` for non-parallel slopes).
+- **0.6.1** — Fixed dead binomial branch in `flexplot()`; numeric `[0, 1]` y now routes to the binomial GLM smoother (was straight LM line).
+- **0.6.0** — New `diagnose(formula, data)` for auto data-quality diagnostics (missingness, Cook's D, Ramsey RESET, Breusch-Pagan).
+- **0.5.0** — New `overlay=` parameter on `flexplot()` for multi-smoother comparison.
+- **0.4.0** — First-class uncertainty layer on `flexplot()` (`uncertainty=`, `level=`, `bands=`); new `pyflexplot.uncertainty` module.
+- **0.3.0** — `visualize()` accepts `NeuralNetFit` wrappers; formula parser validation hardened.
+
 ## [0.6.2] - 2026-08-30
 
 ### Added
