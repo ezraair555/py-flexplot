@@ -5,6 +5,28 @@ All notable changes to py-flexplot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-30
+
+### Added
+
+- **Auto data-quality diagnostics via `diagnose()`** — one-paragraph
+  summary of a flexplot formula + data. Surfaces four diagnostics in a
+  single text output:
+  - **Missingness**: per-column counts and pattern heuristic
+    (none / concentrated / spread).
+  - **Outliers**: Cook's distance count and threshold (default `4/n`).
+  - **Linearity**: Ramsey RESET test for functional-form misspecification.
+  - **Heteroscedasticity**: Breusch-Pagan test for non-constant variance.
+- **New module `pyflexplot.quality`** — public helpers `diagnose()`
+  and `format_summary()`.
+- **`__init__.py`** now exports `diagnose` and `format_summary` at the
+  package level.
+- **New test file `tests/test_quality.py`** — 19 tests covering
+  validation, missingness patterns, outlier detection on clean and
+  contaminated data, Ramsey RESET linearity detection, Breusch-Pagan
+  heteroscedasticity detection, multi-predictor formulas, color/given
+  variables, verbose vs quiet output, and `format_summary`.
+
 ## [0.5.0] - 2026-08-30
 
 ### Added
