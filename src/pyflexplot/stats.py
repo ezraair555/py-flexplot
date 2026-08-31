@@ -18,14 +18,34 @@ def model_comparison(model1, model2):
     """
     Statistically compares the fits of two nested statsmodels results.
 
-    Returns a DataFrame with AIC, BIC, and log-likelihood, plus a p-value from
-    the likelihood-ratio test. The LRT always subtracts the smaller log-
-    likelihood from the larger one and uses the corresponding positive degrees-
-    of-freedom difference.
+    Returns a tuple ``(DataFrame, p_value)`` where the DataFrame carries
+    per-model AIC, BIC, LogLik, R-squared, adjusted R-squared, and Bayes
+    factor (computed from BIC via the Kass & Raftery 1995 approximation).
+    The second element is the p-value from the likelihood-ratio test.
+
+    The Bayes factor is attached to the more likely model (BIC-wise):
+    the model with the lower BIC gets a BF ≥ 1 in its row, the other
+    model gets 1/BF. This mirrors R's ``flexplot::model.comparison()``
+    behavior.
+
+    The LRT always subtracts the smaller log-likelihood from the larger
+    one and uses the corresponding positive degrees-of-freedom difference.
     """
     required = ("aic", "bic", "llf", "df_model")
     _check_statsmodels_attrs(model1, required)
     _check_statsmodels_attrs(model2, required)
+
+    # Bayes factor for model1 over model2 (Kass & Raftery 1995 approximation
+    # from BIC): BF_{1,2} = exp((BIC_2 - BIC_1) / 2). Values > 1 favor model1.
+    bf_raw = float(np.exp((model2.bic - model1.bic) / 2.0))
+
+    # Attach the larger BF to the model with the lower BIC. The convention
+    # here matches R's model_comparison_table(): the better model gets
+    # BF >= 1; the worse model gets 1/BF.
+    if model1.bic <= model2.bic:
+        bf_col = [bf_raw, 1.0 / bf_raw]
+    else:
+        bf_col = [1.0 / bf_raw, bf_raw]
 
     res = pd.DataFrame(
         {
@@ -35,6 +55,19 @@ def model_comparison(model1, model2):
         },
         index=["Model 1", "Model 2"],
     )
+
+    # R-squared and adjusted R-squared columns when available (OLS / GLM).
+    extras = {}
+    if hasattr(model1, "rsquared") and hasattr(model2, "rsquared"):
+        extras["R.squared"] = [float(model1.rsquared), float(model2.rsquared)]
+    if hasattr(model1, "rsquared_adj") and hasattr(model2, "rsquared_adj"):
+        extras["Adj.R.squared"] = [
+            float(model1.rsquared_adj),
+            float(model2.rsquared_adj),
+        ]
+    extras["BayesFactor"] = bf_col
+    if extras:
+        res = pd.concat([res, pd.DataFrame(extras, index=res.index)], axis=1)
 
     # Order so the larger (less constrained) model is subtracted from the
     # smaller (more constrained) one, yielding a positive LR statistic with a
