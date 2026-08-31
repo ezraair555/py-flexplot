@@ -40,7 +40,7 @@ exactly what's covered and what's not.
 | Force plot type | `plot.type="bar"` | ✅ | `plot_type="scatter"\|"line"\|"boxplot"\|"bar"` | Bypasses auto-dispatch. |
 | Return data | `return.data=TRUE` | ✅ | `return_data=True` | Returns `{"plot", "data"}`. |
 | Link related panels | `related=TRUE` | ⚠️ | `related=True` | No-op (plotnine already shares scales); accepted for R-parity. |
-| R-style interaction syntax | `y ~ x*z` | ⚠️ | formula parser | Parsed but fit is additive; `UserWarning` emitted. v0.7.0 will add `interaction_model=True` for non-parallel slopes. |
+| R-style interaction syntax | `y ~ x*z` | ✅ | `formula` parser + `interaction_model=True` (v0.7.0+) | Parsed since v0.6.2; **default** fit is additive (parallel slopes per color group, `UserWarning` emitted). `interaction_model=True` fits the actual interaction term and overlays non-parallel per-color-group lines. |
 | Mixed-effects models (`glmer`) | `method="glmer"` | ❌ | — | `statsmodels.MixedLM` is not a drop-in for `lme4`. **Deferred.** |
 | Random forests | `method="rf"` | ✅ | `RFAdapter(estimator, ...)` | Use [`pyflexplot.ml.RFAdapter`](ml.md) to wrap a fitted sklearn estimator and pass it to `compare_fits()`. v0.6.7+. |
 | Diagonal slope=1 reference | implicit | ❌ | — | v0.7.0 todo. |

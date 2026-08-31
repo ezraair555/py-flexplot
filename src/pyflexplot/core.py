@@ -488,6 +488,7 @@ def flexplot(
     ghost_reference=None,
     plot_string=None,
     related: bool = False,
+    interaction_model: bool = False,
     **kwargs,
 ):
     """Intelligent multivariate graphics via formulas.
@@ -570,6 +571,14 @@ def flexplot(
         R-flexplot's panel-linking flag. Currently a no-op on the Python
         side (plotnine already shares scales by default). Accepted for
         R-parity; raises ``TypeError`` if not a bool.
+    interaction_model : bool, default False
+        When ``True`` and the formula contains ``*`` or ``:`` syntax, fit
+        a statsmodels OLS with the actual interaction term and overlay
+        non-parallel per-color-group regression lines (rather than the
+        default additive fit with parallel slopes). Suppresses the
+        "additive fit" UserWarning when set. Falls back to the additive
+        path when the formula has no interaction term, no separate color
+        group, or only one color level.
     **kwargs
         Reserved for future extension.
 
@@ -588,10 +597,12 @@ def flexplot(
     ``method="logistic"`` bypasses the binary pre-check and forces the
     numeric branch with a parametric logistic GLM.
 
-    Interaction syntax (``*``, ``:``) is parsed since v0.6.2 but the v0.6.x
-    fit remains additive. A ``UserWarning`` is emitted whenever interaction
-    syntax is detected; v0.7.0 will add ``interaction_model=True`` for true
-    non-parallel slopes.
+    Interaction syntax (``*``, ``:``) is parsed since v0.6.2. The default
+    fit remains **additive** (parallel slopes per color group); a
+    ``UserWarning`` is emitted whenever interaction syntax is detected.
+    Pass ``interaction_model=True`` (v0.7.0+) to fit the actual
+    interaction term and overlay non-parallel per-color-group regression
+    lines; this also suppresses the additive-fit warning.
 
     Examples
     --------
@@ -655,15 +666,16 @@ def flexplot(
         )
 
     variables = parse_flexplot_formula(formula)
-    if variables.get("has_interaction"):
-        # v0.6.x: parser accepts interaction syntax (R-compatible) but the
-        # fit remains additive (parallel slopes per color group). Warn so
-        # users aren't misled. v0.7.0 will add `interaction_model=True` for
-        # true non-parallel slopes.
+    if variables.get("has_interaction") and not interaction_model:
+        # v0.6.x default: parser accepts interaction syntax (R-compatible)
+        # but the fit remains additive (parallel slopes per color group).
+        # Warn so users aren't misled. When interaction_model=True is
+        # explicit, the fit uses the actual interaction term via
+        # _add_interaction_smooth() and no warning is needed (v0.7.0+).
         warnings.warn(
             f"Interaction syntax detected in formula {formula!r} but flexplot's "
             f"default fit is additive (parallel slopes per color group). "
-            f"v0.7.0 will add `interaction_model=True` for non-parallel slopes. "
+            f"Pass `interaction_model=True` for true non-parallel slopes. "
             f"To suppress this warning, write the formula without `*` or `:`.",
             UserWarning,
             stacklevel=2,
@@ -837,9 +849,17 @@ def flexplot(
 
     elif not skip_dispatch and is_y_numeric and not is_x_discrete:
         p += geom_point(alpha=0.5)
-        p = _add_numeric_smooth(
-            p, data, x, y, method, uncertainty, level, bands
-        )
+        if interaction_model and variables.get("has_interaction") and color:
+            # Non-parallel slopes per color group via statsmodels OLS with
+            # the actual interaction term (e.g. y ~ x * color). v0.7.0+.
+            p = _add_interaction_smooth(
+                p, data, x, y, color, variables["all_x"],
+                method, uncertainty, level, bands,
+            )
+        else:
+            p = _add_numeric_smooth(
+                p, data, x, y, method, uncertainty, level, bands
+            )
         if overlay_specs:
             p = _add_overlay_numeric(p, data, x, y, overlay_specs)
 
@@ -1229,6 +1249,160 @@ def _add_parametric_smooth(
     # cleaner — but text annotations need positioning data. Skipping for
     # now; users can pass `labs()` themselves).
     _ = link_label  # reserved for future annotation hook
+    return p
+
+
+def _add_interaction_smooth(
+    p,
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    color: str,
+    all_x: list,
+    method: str,
+    uncertainty: Optional[str],
+    level: float,
+    bands: Optional[List[float]],
+):
+    """Add per-color-group fitted lines for an interaction formula.
+
+    Used when ``interaction_model=True`` and the formula contains ``*`` or
+    ``:`` syntax. Fits a statsmodels OLS with the actual interaction term
+    (e.g. ``y ~ x * z`` rather than ``y ~ x + z``) and overlays one
+    ``geom_line`` + optional ``geom_ribbon`` per level of ``color``.
+
+    Parameters
+    ----------
+    all_x : list of str
+        The expanded predictor list from the parser; for ``y ~ x*z`` this
+        is ``['x', 'z', 'x:z']``. The interaction term is auto-detected as
+        any term containing ``:``.
+    """
+    # Identify the interaction term in all_x (the one containing ":").
+    interaction_term = next((t for t in all_x if ":" in t), None)
+    if interaction_term is None:
+        # Defensive: if interaction_model=True but no interaction term
+        # was parsed, fall back to the additive path. (Should not happen
+        # if the parser is consistent, but we don't want to crash.)
+        return _add_numeric_smooth(
+            p, data, x, y, method, uncertainty, level, bands
+        )
+
+    # Find the color column name in the interaction term: "x:z" -> first atom.
+    color_atom = _first_atom(interaction_term.split(":")[1]) if ":" in interaction_term else color
+    if color_atom != color:
+        # Mismatch — fallback.
+        return _add_numeric_smooth(
+            p, data, x, y, method, uncertainty, level, bands
+        )
+
+    # Build the design matrix: y ~ x + color + x:color (the interaction).
+    x_arr = data[x].to_numpy(dtype=float)
+    color_arr = data[color].to_numpy()
+    y_arr = data[y].to_numpy(dtype=float)
+
+    # Encode color via a category code so the interaction term is numeric.
+    color_series = pd.Series(color_arr)
+    color_codes, color_levels = pd.factorize(color_series)
+    color_codes = color_codes.astype(float)
+    n_groups = len(color_levels)
+    if n_groups < 2:
+        # Degenerate: only one color level. Fall back to additive.
+        return _add_numeric_smooth(
+            p, data, x, y, method, uncertainty, level, bands
+        )
+
+    # Build design matrix: intercept + x + color_dummies (drop first) + x:color_dummies
+    # Simpler approach: use statsmodels' formula API directly with the
+    # interaction term. This is cleaner than constructing the design
+    # matrix by hand and matches R's `y ~ x * color` semantics.
+    import statsmodels.formula.api as _smf
+
+    # Build a temporary DataFrame for statsmodels.
+    fit_df = pd.DataFrame({
+        "_y": y_arr,
+        "_x": x_arr,
+        "_color": color_arr,
+    })
+    # Renaming so statsmodels' patsy accepts them (avoid operator parsing issues).
+    fit_df.columns = ["_y", "_x", "_color"]
+    formula_str = "_y ~ _x * _color"
+    try:
+        model = _smf.ols(formula_str, data=fit_df).fit()
+    except Exception as exc:
+        raise RuntimeError(
+            f"interaction_model=True requires a valid OLS fit with the "
+            f"interaction term; got: {exc}"
+        )
+
+    # Predict on a per-color grid.
+    x_min = float(np.nanmin(x_arr))
+    x_max = float(np.nanmax(x_arr))
+    x_eval = np.linspace(x_min, x_max, num=200)
+
+    # Build eval DataFrame with one row per (x_eval, color_level).
+    eval_rows = []
+    for level_val in color_levels:
+        for xv in x_eval:
+            eval_rows.append({"_x": xv, "_color": level_val})
+    eval_df = pd.DataFrame(eval_rows)
+    yhat_eval = np.asarray(model.predict(eval_df))
+
+    # Compute CI bands. Supports a single level (level=) or nested bands
+    # (bands=[...]). Returns a dict {level_value: (lower_array, upper_array)}
+    # or None if CI computation failed / is suppressed.
+    band_arrays = None
+    if uncertainty in {"ci", "prediction"}:
+        levels_to_compute = sorted(set(bands)) if bands is not None else [level]
+        band_arrays = {}
+        ci_kind = "obs_ci" if uncertainty == "prediction" else "mean_ci"
+        for lvl in levels_to_compute:
+            try:
+                pred = model.get_prediction(eval_df)
+                frame = pred.summary_frame(alpha=1 - lvl)
+                lower = frame[f"{ci_kind}_lower"].to_numpy()
+                upper = frame[f"{ci_kind}_upper"].to_numpy()
+                band_arrays[lvl] = (lower, upper)
+            except Exception:
+                # Skip this level if statsmodels can't produce it.
+                pass
+        if not band_arrays:
+            band_arrays = None
+
+    # Determine colors per group using a default palette.
+    palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
+    for i, level_val in enumerate(color_levels):
+        group_mask = (eval_df["_color"] == level_val).to_numpy()
+        line_color = palette[i % len(palette)]
+        # Build a per-group dataframe for plotnine.
+        line_df = pd.DataFrame({
+            x: x_eval,
+            y: yhat_eval[group_mask],
+            color: np.full_like(x_eval, level_val, dtype=object),
+        })
+        # The line itself.
+        p += geom_line(
+            data=line_df,
+            color=line_color,
+            inherit_aes=False,
+        )
+        # Optional ribbons. For nested bands, draw innermost first so the
+        # outermost band ends up on top.
+        if band_arrays is not None:
+            for lvl, (ci_lower, ci_upper) in sorted(band_arrays.items()):
+                ribbon_df = line_df.copy()
+                ribbon_df["__lower"] = ci_lower[group_mask]
+                ribbon_df["__upper"] = ci_upper[group_mask]
+                # Outer (larger coverage) bands are wider; lower alpha for
+                # the innermost so the layering reads as Tufte-style nested.
+                alpha = 0.10 + 0.10 * (lvl / max(band_arrays.keys()))
+                p += geom_ribbon(
+                    aes(ymin="__lower", ymax="__upper"),
+                    data=ribbon_df,
+                    alpha=alpha,
+                    fill=line_color,
+                    inherit_aes=False,
+                )
     return p
 
 

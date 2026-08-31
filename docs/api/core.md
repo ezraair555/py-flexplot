@@ -37,6 +37,7 @@ p = flexplot(formula, data, method="auto", uncertainty="ci", level=0.95)
 - **ghost_reference** (pd.DataFrame, v0.6.6+): Reference dataset to overlay. Two patterns detected by column shape: `(x, y)` → gray geom_point (reference scatter); `(x, "pred")` → red dashed geom_line (prediction line).
 - **plot_string** (dict, v0.6.6+): Override axis/legend labels. Accepts keys `x`, `y`, `title`, `subtitle`, `caption`, `color`.
 - **related** (bool, v0.6.6+): R-flexplot's panel-linking flag. Currently a no-op on the Python side (plotnine already shares scales by default); accepted for R-parity, rejected if non-bool.
+- **interaction_model** (bool, v0.7.0+): When `True` AND the formula contains `*` or `:` syntax, fit a statsmodels OLS with the actual interaction term and overlay non-parallel per-color-group regression lines. Default `False` preserves the legacy additive fit + `UserWarning`. Suppresses the additive-fit warning when set.
 
 ### Intelligent Mapping
 - **Numeric y ~ Numeric x**: Scatterplot + trend line. Smoother controlled by `method` (`"auto"` / `"lm"` / `"loess"` / `"polynomial"` / `"cubic"` / `"logistic"`).
@@ -140,10 +141,13 @@ Formulas accept R-style interaction syntax:
 | `y ~ x*z` | expanded to `x + z + x:z`; column lookup uses `x` and `z` |
 | `y ~ x:z` | interaction term only (no main effects); first atom `x` used as the x-axis variable |
 
-The v0.6.x fit remains **additive** (parallel slopes per color group). A
+The v0.6.x default fit is **additive** (parallel slopes per color group). A
 `UserWarning` is emitted whenever `*` or `:` appears in the formula so users
-aren't misled. v0.7.0 will add `interaction_model=True` for true non-parallel
-slopes.
+aren't misled. Pass `interaction_model=True` (v0.7.0+) to fit the actual
+interaction term and overlay non-parallel per-color-group lines; this also
+suppresses the additive-fit warning. Falls back to the additive path when the
+formula has no interaction term, no separate color group, or only one color
+level.
 
 ---
 

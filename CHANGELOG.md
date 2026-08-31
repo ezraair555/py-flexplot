@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent highlights
 
+- **0.7.0** — `flexplot()` gains `interaction_model=True` for non-parallel slopes per color group when the formula uses R-style interaction syntax (`*` or `:`). Closes the largest semantic gap in the v0.6.2 R-audit.
 - **0.6.7** — New `pyflexplot.ml.RFAdapter` lets scikit-learn estimators (random forests, gradient boosting, any `.predict()`-bearing estimator) participate in `compare_fits()` alongside statsmodels fits. Documentation honesty pass: README + `docs/index.md` + `docs/api/core.md` + `docs/api/stats.md` now reflect what's actually in the package; new `docs/api/coverage.md` gives a per-feature matrix vs the R packages.
 - **0.6.6** — `flexplot()` gains `ghost.reference` (DataFrame overlay for reference scatter or prediction line), `plot.string` (label override dict), and `related` (no-op on Python side; plotnine already shares scales by default).
 - **0.6.5** — `flexplot()` gains `sample` (subsample rows for plotting, full data still used for fits), `ghost_line` ("red" or "dashed" reference line), `plot_type` override ("scatter", "line", "boxplot", "bar"), and `return_data` (returns `{"plot", "data"}` instead of just plot). Closes the remaining easy-wins from the v0.6.x R-audit.
@@ -18,6 +19,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **0.5.0** — New `overlay=` parameter on `flexplot()` for multi-smoother comparison.
 - **0.4.0** — First-class uncertainty layer on `flexplot()` (`uncertainty=`, `level=`, `bands=`); new `pyflexplot.uncertainty` module.
 - **0.3.0** — `visualize()` accepts `NeuralNetFit` wrappers; formula parser validation hardened.
+
+## [0.7.0] - 2026-08-31
+
+### Added
+
+- **`interaction_model: bool`** on `flexplot()` — when `True` AND the formula
+  contains `*` or `:` syntax, fit a statsmodels OLS with the actual
+  interaction term (e.g. `y ~ x * z`) and overlay non-parallel per-color-
+  group regression lines. Default behavior is preserved: `interaction_model=
+  False` keeps the legacy additive fit + `UserWarning`.
+  Implementation: `_add_interaction_smooth()` fits `y ~ _x * _color` via
+  `statsmodels.formula.api.ols`, then predicts on a per-color grid and
+  draws one `geom_line` + optional `geom_ribbon` per level of the color
+  group. Honors `uncertainty` ("ci" / "prediction"), `level`, and `bands`.
+  Fallback conditions (re-routes through `_add_numeric_smooth()`):
+  - No interaction term in the formula (e.g. `y ~ x + z`).
+  - `color` group is `None` (e.g. `y ~ x:z` alone).
+  - Only one level in the color group.
+  When set, suppresses the additive-fit `UserWarning`.
+
+### Notes
+
+- v0.7.0 is a minor-version bump (semver) because the new feature
+  introduces a visible behavioral change at the dispatch level (per-group
+  fits vs additive) and a new boolean parameter.
+- Modeling principle #1 (correct specification) is now honored for
+  interaction formulas: when the user writes `y ~ x*z` and opts in via
+  `interaction_model=True`, the fitted model includes the `x:z` term.
+
+### Tests
+
+- 11 new tests in `tests/test_interaction_model.py` covering: warning
+  suppression, per-group lines, distinct slopes, fallback conditions
+  (no interaction term, no color, single color level), uncertainty =
+  None / "ci" / bands=[0.5, 0.95], and backward compat with the
+  default additive path.
 
 ## [0.6.7] - 2026-08-31
 

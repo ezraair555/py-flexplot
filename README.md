@@ -14,7 +14,7 @@ This is **not** a 1:1 port. The Python port covers the parts of R's `flexplot` a
 - ✅ `model_comparison()` (AIC / BIC / R² / adj.R² / **Bayes factor**), `estimates()` (structured effect-size reporter), `compare_fits()` (with `return_preds` / `pred_type`).
 - ✅ `visualize()` with `plot='model' | 'residuals' | 'all'`.
 - ✅ `diagnose()` (missingness, Cook's D, Ramsey RESET, Breusch-Pagan).
-- ⚠️ R-style interaction syntax (`y ~ x*z`) is parsed but the fit remains additive — v0.7.0 will add `interaction_model=True` for non-parallel slopes.
+- ⚠️ R-style interaction syntax (`y ~ x*z`) is parsed but the fit remains additive — pass `interaction_model=True` (v0.7.0+) for non-parallel slopes per color group.
 - ✅ `randomForest` (and any sklearn estimator with `.predict()`) — use `pyflexplot.ml.RFAdapter` to wrap a fitted estimator and pass it to `compare_fits()`. See [`docs/api/ml.md`](docs/api/ml.md).
 - ❌ Mixed-effects models (`lme4` / `glmer`) are not ported; `statsmodels.MixedLM` is not a drop-in for `lme4`. See [`docs/api/coverage.md`](docs/api/coverage.md) for the plan.
 
