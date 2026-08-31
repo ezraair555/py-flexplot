@@ -9,6 +9,7 @@ from plotnine import (
     geom_smooth,
     geom_jitter,
     geom_line,
+    geom_ribbon,
     stat_summary,
     facet_wrap,
     facet_grid,
@@ -18,6 +19,14 @@ from plotnine import (
 )
 import statsmodels.api as sm
 from statsmodels.regression.linear_model import OLS
+from statsmodels.nonparametric.smoothers_lowess import lowess
+
+from .uncertainty import (
+    VALID_UNCERTAINTY,
+    validate_uncertainty_params,
+    compute_bootstrap_ci,
+    compute_prediction_band,
+)
 
 
 def parse_flexplot_formula(formula: str):
@@ -143,9 +152,44 @@ def _validate_data_for_plot(formula: str, data: pd.DataFrame, variables: dict):
 _VALID_FLEXPLOT_METHODS = frozenset({"auto", "lm", "loess"})
 
 
-def flexplot(formula: str, data: pd.DataFrame, method: str = "auto", **kwargs):
-    """
-    Intelligent multivariate graphics via formulas.
+def flexplot(
+    formula: str,
+    data: pd.DataFrame,
+    method: str = "auto",
+    uncertainty: Optional[str] = "ci",
+    level: float = 0.95,
+    bands: Optional[List[float]] = None,
+    **kwargs,
+):
+    """Intelligent multivariate graphics via formulas.
+
+    Parameters
+    ----------
+    formula : str
+        Flexplot formula of the form ``y ~ x [+ color] [| given1, given2]``.
+    data : pd.DataFrame
+        Non-empty data frame holding the referenced columns.
+    method : {"auto", "lm", "loess"}
+        Smoother for the numeric-vs-numeric branch. ``"auto"`` selects LM.
+    uncertainty : {None, "ci", "prediction", "bootstrap"}, default "ci"
+        Type of uncertainty band drawn around the fitted line.
+        - ``None``: no fit, just the scatter.
+        - ``"ci"``: confidence interval on the mean response (plotnine default).
+        - ``"prediction"``: residual-based prediction interval on new observations.
+        - ``"bootstrap"``: case-resampled CI (loess branch only; n_resamples=200).
+    level : float in (0, 1), default 0.95
+        Coverage probability for a single band. Ignored when ``bands`` is given.
+    bands : list of float in (0, 1), optional
+        Nested coverage levels (e.g., ``[0.5, 0.8, 0.95]``) for Tufte-style
+        multi-ribbon display. Overrides ``level`` when provided.
+    **kwargs
+        Reserved for future extension.
+
+    Notes
+    -----
+    For the numeric-vs-binary branch (binomial GLM), the band is always drawn
+    on the response (probability) scale; plotnine handles the inverse-link
+    transformation internally.
     """
     if method not in _VALID_FLEXPLOT_METHODS:
         raise ValueError(
@@ -153,6 +197,8 @@ def flexplot(formula: str, data: pd.DataFrame, method: str = "auto", **kwargs):
             "Pass 'auto' for the default behaviour (LM for numeric-vs-numeric, "
             "binomial GLM for numeric-vs-binary)."
         )
+    validate_uncertainty_params(uncertainty, level, bands, method)
+
     variables = parse_flexplot_formula(formula)
     _validate_data_for_plot(formula, data, variables)
 
@@ -193,10 +239,9 @@ def flexplot(formula: str, data: pd.DataFrame, method: str = "auto", **kwargs):
     # Determine plot type
     if is_y_numeric and is_x_numeric:
         p += geom_point(alpha=0.5)
-        if method == "auto" or method == "lm":
-            p += geom_smooth(method="lm", color="blue")
-        elif method == "loess":
-            p += geom_smooth(method="loess", color="blue")
+        p = _add_numeric_smooth(
+            p, data, x, y, method, uncertainty, level, bands
+        )
 
     elif is_y_numeric and not is_x_numeric:
         p += geom_jitter(width=0.2, alpha=0.5)
@@ -217,7 +262,7 @@ def flexplot(formula: str, data: pd.DataFrame, method: str = "auto", **kwargs):
                 f"unique values: {sorted(unique_y)}"
             )
         p += geom_point(alpha=0.3)
-        p += geom_smooth(method="glm", method_args={"family": "binomial"})
+        p = _add_binomial_smooth(p, data, x, y, uncertainty, level, bands)
 
     else:
         p += geom_jitter(width=0.2, height=0.2, alpha=0.5)
@@ -228,6 +273,170 @@ def flexplot(formula: str, data: pd.DataFrame, method: str = "auto", **kwargs):
         p += facet_grid(f"{given[1]} ~ {given[0]}")
 
     p += theme_bw()
+    return p
+
+
+def _lowess_predict(x_eval: np.ndarray, y: np.ndarray, x: np.ndarray) -> np.ndarray:
+    """Wrapper around statsmodels ``lowess`` that takes (x_eval, y_sorted_by_x)."""
+    order = np.argsort(x)
+    x_sorted = np.asarray(x)[order]
+    y_sorted = np.asarray(y)[order]
+    smoothed = lowess(y_sorted, x_sorted, return_sorted=False)
+    return np.interp(x_eval, x_sorted, smoothed)
+
+
+def _add_numeric_smooth(
+    p,
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    method: str,
+    uncertainty: Optional[str],
+    level: float,
+    bands: Optional[List[float]],
+):
+    """Add fitted line + uncertainty band for numeric-vs-numeric.
+
+    Returns the plotnine plot object with the appropriate layers added.
+    Caller is responsible for adding geom_point first.
+    """
+    if uncertainty is None:
+        # No fit at all — preserve the scatter only.
+        return p
+
+    use_loess = method == "loess"
+
+    # --- Nested bands (multiple ribbons via multiple geom_smooth layers) ---
+    if bands is not None:
+        levels = sorted(set(bands))
+        for lvl in levels:
+            if use_loess:
+                p += geom_smooth(method="loess", level=lvl, color="blue", alpha=0.15)
+            else:
+                p += geom_smooth(method="lm", level=lvl, color="blue", alpha=0.15)
+        return p
+
+    # --- Single band ---
+    if uncertainty == "ci":
+        if use_loess:
+            p += geom_smooth(method="loess", level=level, color="blue")
+        else:
+            p += geom_smooth(method="lm", level=level, color="blue")
+        return p
+
+    if uncertainty == "prediction":
+        # Fit an OLS model, compute residual-based PI on a sorted-x grid,
+        # and draw a ribbon + the fitted line.
+        from scipy import stats as _scipy_stats
+
+        x_arr = data[x].to_numpy(dtype=float)
+        y_arr = data[y].to_numpy(dtype=float)
+        model = OLS(y_arr, sm.add_constant(x_arr)).fit()
+        x_eval = np.sort(np.unique(x_arr))
+        if x_eval.size < 2:
+            # Degenerate: cannot draw a meaningful band.
+            p += geom_line(aes(y=y), color="blue")
+            return p
+        yhat_eval = model.predict(sm.add_constant(x_eval))
+        yhat_full = model.predict(sm.add_constant(x_arr))
+        sigma = float(np.sqrt(np.mean((y_arr - yhat_full) ** 2)))
+        z = float(_scipy_stats.norm.ppf(0.5 + level / 2))
+        half_width = z * sigma
+        ribbon_df = pd.DataFrame({
+            x: x_eval,
+            "__lower": yhat_eval - half_width,
+            "__upper": yhat_eval + half_width,
+            y: yhat_eval,
+        })
+        p += geom_ribbon(
+            aes(ymin="__lower", ymax="__upper"),
+            data=ribbon_df,
+            alpha=0.2,
+            fill="blue",
+            inherit_aes=False,
+        )
+        p += geom_line(
+            aes(y=y),
+            data=ribbon_df,
+            color="blue",
+            inherit_aes=False,
+        )
+        return p
+
+    if uncertainty == "bootstrap":
+        # Case-resampled bootstrap CI for the loess branch.
+        x_arr = data[x].to_numpy(dtype=float)
+        y_arr = data[y].to_numpy(dtype=float)
+        x_eval, lower, upper = compute_bootstrap_ci(
+            x_arr, y_arr,
+            smooth_fn=lambda x_e, y_s: _lowess_predict(x_e, y_s, x_arr),
+            n_resamples=200,
+            level=level,
+            random_state=None,
+        )
+        smoothed_line = _lowess_predict(x_eval, y_arr, x_arr)
+        ribbon_df = pd.DataFrame({
+            x: x_eval,
+            "__lower": lower,
+            "__upper": upper,
+            y: smoothed_line,
+        })
+        p += geom_ribbon(
+            aes(ymin="__lower", ymax="__upper"),
+            data=ribbon_df,
+            alpha=0.2,
+            fill="blue",
+            inherit_aes=False,
+        )
+        p += geom_line(
+            aes(y=y),
+            data=ribbon_df,
+            color="blue",
+            inherit_aes=False,
+        )
+        return p
+
+    # Should never reach here thanks to validate_uncertainty_params.
+    return p
+
+
+def _add_binomial_smooth(
+    p,
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    uncertainty: Optional[str],
+    level: float,
+    bands: Optional[List[float]],
+):
+    """Add fitted line + uncertainty band for numeric-vs-binary (binomial GLM).
+
+    The band is always rendered on the response (probability) scale.
+    """
+    if uncertainty is None:
+        # No fit at all — just the scatter.
+        return p
+
+    method_args = {"family": "binomial"}
+
+    if bands is not None:
+        levels = sorted(set(bands))
+        for lvl in levels:
+            p += geom_smooth(
+                method="glm",
+                method_args=method_args,
+                level=lvl,
+                color="blue",
+                alpha=0.15,
+            )
+        return p
+
+    p += geom_smooth(
+        method="glm",
+        method_args=method_args,
+        level=level,
+        color="blue",
+    )
     return p
 
 
