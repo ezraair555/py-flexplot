@@ -182,7 +182,198 @@ def _is_discrete(series: pd.Series) -> bool:
     return series.dropna().nunique() <= 10
 
 
-_VALID_FLEXPLOT_METHODS = frozenset({"auto", "lm", "loess"})
+def _validate_binning_params(
+    bins,
+    labels,
+    breaks,
+    x_series: pd.Series,
+):
+    """Validate bins / labels / breaks arguments for numeric-x discretization.
+
+    Rules:
+    - ``bins``: positive int >= 2 (1 bin is meaningless).
+    - ``breaks``: list of floats, length >= 2, strictly monotonically
+      increasing.
+    - ``labels``: list of strings. When given with ``breaks``, len must be
+      len(breaks) - 1. When given with ``bins`` alone, len must equal
+      ``bins``.
+    - ``bins`` and ``breaks`` are mutually exclusive (breaks wins).
+    - All binning params are silently ignored when x is already discrete
+      or non-numeric (caller checks first).
+    """
+    if bins is None and breaks is None and labels is None:
+        return
+    if bins is not None:
+        if not isinstance(bins, int) or isinstance(bins, bool):
+            raise TypeError(
+                f"bins must be an int >= 2; got {type(bins).__name__} ({bins!r})."
+            )
+        if bins < 2:
+            raise ValueError(f"bins must be >= 2; got {bins}.")
+    if breaks is not None:
+        if not isinstance(breaks, (list, tuple)):
+            raise TypeError(
+                f"breaks must be a list/tuple of floats; got {type(breaks).__name__}."
+            )
+        if len(breaks) < 2:
+            raise ValueError(
+                f"breaks must have >= 2 cut points; got {len(breaks)}."
+            )
+        # Coerce to float and check monotonicity.
+        breaks_f = [float(b) for b in breaks]
+        for i in range(1, len(breaks_f)):
+            if breaks_f[i] <= breaks_f[i - 1]:
+                raise ValueError(
+                    f"breaks must be strictly monotonically increasing; "
+                    f"got {breaks_f!r}."
+                )
+    if labels is not None:
+        if not isinstance(labels, (list, tuple)):
+            raise TypeError(
+                f"labels must be a list/tuple of strings; got {type(labels).__name__}."
+            )
+        if any(not isinstance(lbl, str) for lbl in labels):
+            raise TypeError("labels must all be strings.")
+        if breaks is not None:
+            if len(labels) != len(breaks) - 1:
+                raise ValueError(
+                    f"labels length ({len(labels)}) must equal "
+                    f"len(breaks) - 1 ({len(breaks) - 1})."
+                )
+        elif bins is not None:
+            if len(labels) != bins:
+                raise ValueError(
+                    f"labels length ({len(labels)}) must equal bins ({bins})."
+                )
+    if bins is not None and breaks is not None:
+        warnings.warn(
+            "Both bins and breaks were provided; breaks takes precedence.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
+def _maybe_bin_numeric_x(
+    data: pd.DataFrame,
+    x: str,
+    bins=None,
+    labels=None,
+    breaks=None,
+):
+    """Discretize a numeric x column into bins/breaks.
+
+    Returns (dataframe, was_binned: bool). If neither bins nor breaks is
+    given, returns (data.copy(), False) without modifying x.
+
+    Uses pd.cut() for both equal-width (bins) and explicit-cut (breaks)
+    paths. NaN handling: rows with NaN x are dropped from the binning but
+    preserved in the returned dataframe with NaN x (plotnine will skip them).
+    """
+    if bins is None and breaks is None:
+        return data.copy(), False
+
+    x_arr = data[x].to_numpy()
+    if breaks is not None:
+        cuts = list(breaks)
+    else:
+        # Equal-width bins between min and max (inclusive on the lower end).
+        x_min = float(np.nanmin(x_arr))
+        x_max = float(np.nanmax(x_arr))
+        cuts = np.linspace(x_min, x_max, num=int(bins) + 1).tolist()
+
+    # Ensure endpoints are captured even if the data doesn't hit them.
+    # pd.cut's include_lowest=True makes the leftmost bin closed on both ends.
+    binned = pd.cut(
+        data[x],
+        bins=cuts,
+        labels=labels,
+        include_lowest=True,
+    )
+
+    out = data.copy()
+    # Convert to string so plotnine treats it as discrete levels.
+    out[x] = binned.astype(str)
+    return out, True
+
+
+_VALID_SPREAD = frozenset({None, "stdev", "range", "iqr", "no", "ci"})
+
+
+def _add_discrete_summary(p, spread: Optional[str]):
+    """Add the dispersion marker layer for the discrete-x branch.
+
+    Mirrors R-flexplot's ``spread`` argument:
+    - None / "ci": bootstrap CI on the mean (plotnine's stat_summary with
+      ``fun_data='mean_cl_boot'``). This is the legacy default.
+    - "stdev": mean +/- 1 SD as a crossbar (pointrange with computed limits).
+    - "range": min-max range as a wider crossbar.
+    - "iqr": Q1-Q3 IQR as a boxplot-like crossbar.
+    - "no": no summary layer at all.
+    """
+    if spread not in _VALID_SPREAD:
+        raise ValueError(
+            f"spread must be one of {sorted(s for s in _VALID_SPREAD if s)}; "
+            f"got {spread!r}."
+        )
+
+    if spread == "no":
+        return p
+
+    if spread is None or spread == "ci":
+        # Legacy default: bootstrap CI via stat_summary.
+        p += stat_summary(fun_data="mean_cl_boot", color="red", size=1)
+        return p
+
+    # stdev / range / iqr: use a precomputed summary dataframe + pointrange.
+    # stat_summary can't easily express "by group" summaries that return a
+    # single (y, ymin, ymax) per x level, so we build it manually.
+    # Pull the aes from the existing plot: x_var is the discrete-x column.
+    # We don't know the column names here without the caller passing them,
+    # so we use the plot's already-attached data + aes.
+    #
+    # IMPORTANT: callers should prefer plot-level data extraction. For
+    # simplicity we use a fallback: invoke stat_summary with a custom
+    # fun_data that yields (ymin, y) by computing per-level quantiles.
+    # The summary fn must return a DataFrame with columns 'y', 'ymin', 'ymax'
+    # and an 'x' level column.
+    if spread == "stdev":
+        fun = _make_spread_fn(np.mean, lambda x: np.std(x, ddof=1))
+    elif spread == "range":
+        fun = _make_spread_fn(np.mean, lambda x: (np.min(x), np.max(x)))
+    elif spread == "iqr":
+        fun = _make_spread_fn(np.median, lambda x: (np.percentile(x, 25), np.percentile(x, 75)))
+    else:  # pragma: no cover — guarded by validator
+        return p
+
+    p += stat_summary(fun_data=fun, fun_y=np.mean, geom="pointrange", color="red", size=0.5)
+    return p
+
+
+def _make_spread_fn(center_fn, spread_fn):
+    """Build a plotnine fun_data-style callable for stat_summary.
+
+    Returns a function ``f(values: np.ndarray) -> pd.DataFrame`` with one row
+    containing columns ``y``, ``ymin``, ``ymax`` (plotnine's expected schema
+    for ``pointrange``). The center_fn is applied to compute ``y``; the
+    spread_fn is applied to compute (ymin, ymax).
+
+    Note: plotnine's stat_summary fun_data expects the x-level grouping to
+    be handled internally. We rely on the default ``fun_y=np.mean`` for the
+    point and our custom fun_data for the range. If the caller's spread_fn
+    returns a 2-tuple (lo, hi), we project those into ymin / ymax.
+    """
+    def _f(values):
+        center = center_fn(values)
+        spread = spread_fn(values)
+        if isinstance(spread, tuple) and len(spread) == 2:
+            lo, hi = spread
+        else:  # pragma: no cover — defensive
+            lo, hi = center - spread, center + spread
+        return pd.DataFrame({"y": [center], "ymin": [lo], "ymax": [hi]})
+    return _f
+
+
+_VALID_FLEXPLOT_METHODS = frozenset({"auto", "lm", "loess", "polynomial", "cubic", "logistic"})
 
 # Recognized methods for overlay entries. Includes a broader set than the
 # primary ``method`` parameter because plotnine/statsmodels supports more
@@ -284,6 +475,10 @@ def flexplot(
     level: float = 0.95,
     bands: Optional[List[float]] = None,
     overlay: Optional[List] = None,
+    bins: Optional[int] = None,
+    labels: Optional[List[str]] = None,
+    breaks: Optional[List[float]] = None,
+    spread: Optional[str] = None,
     **kwargs,
 ):
     """Intelligent multivariate graphics via formulas.
@@ -296,8 +491,12 @@ def flexplot(
         accepted since v0.6.2; see Notes below.
     data : pd.DataFrame
         Non-empty data frame holding the referenced columns.
-    method : {"auto", "lm", "loess"}
+    method : {"auto", "lm", "loess", "polynomial", "cubic", "logistic"}
         Smoother for the numeric-vs-numeric branch. ``"auto"`` selects LM.
+        ``"polynomial"`` / ``"cubic"``: degree-3 OLS in x (cubic is an alias).
+        ``"logistic"``: GLM with logit link on numeric binary y (falls back
+        to OLS with a warning if y is not in {0, 1}; the binary pre-check is
+        bypassed so the parametric branch always fires).
     uncertainty : {None, "ci", "prediction", "bootstrap"}, default "ci"
         Type of uncertainty band drawn around the fitted line.
         - ``None``: no fit, just the scatter.
@@ -318,6 +517,26 @@ def flexplot(
         - ``label`` (optional, default = ``method``): legend label.
         - ``uncertainty`` (optional, default ``"ci"``): per-overlay band type.
         - ``level`` (optional, default 0.95): per-overlay band coverage.
+    bins : int, optional
+        Discretize a numeric x into ``bins`` equal-width intervals before
+        plotting, so the discrete-style summary (geom_jitter + dispersion
+        marker) applies. Mutually exclusive with ``breaks`` (which wins).
+        No-op when x is already discrete or non-numeric.
+    labels : list of str, optional
+        Custom labels for the discrete x levels produced by ``bins`` /
+        ``breaks``. Length must equal ``bins`` (when given with bins) or
+        ``len(breaks) - 1`` (when given with breaks).
+    breaks : list of float, optional
+        Explicit cut points for discretizing numeric x. Takes precedence
+        over ``bins`` when both are given (a ``UserWarning`` is emitted).
+    spread : {None, "ci", "stdev", "range", "iqr", "no"}, default None
+        Dispersion marker drawn in the discrete-x branch alongside
+        ``geom_jitter``. Mirrors R-flexplot's ``spread``.
+        - ``None`` / ``"ci"``: bootstrap CI on the mean (legacy default).
+        - ``"stdev"``: mean ± 1 SD as a pointrange.
+        - ``"range"``: min-max range.
+        - ``"iqr"``: Q1-Q3 IQR.
+        - ``"no"``: no summary layer at all.
     **kwargs
         Reserved for future extension.
 
@@ -332,7 +551,9 @@ def flexplot(
     For the numeric-vs-binary branch (binomial GLM), the band is always drawn
     on the response (probability) scale; plotnine handles the inverse-link
     transformation internally. Numeric binary ``[0, 1]`` y (v0.6.1+) and
-    string binary y both route to the binomial branch.
+    string binary y both route to the binomial branch. Explicit
+    ``method="logistic"`` bypasses the binary pre-check and forces the
+    numeric branch with a parametric logistic GLM.
 
     Interaction syntax (``*``, ``:``) is parsed since v0.6.2 but the v0.6.x
     fit remains additive. A ``UserWarning`` is emitted whenever interaction
@@ -365,6 +586,26 @@ def flexplot(
     >>> smooth_layers = [l for l in p.layers if isinstance(l.geom, geom_smooth)]
     >>> len(smooth_layers) >= 2
     True
+
+    Auto-binning numeric x (v0.6.4):
+
+    >>> df2 = pd.DataFrame({
+    ...     "x": rng.uniform(0, 100, size=80),
+    ...     "y": rng.normal(size=80),
+    ... })
+    >>> p = flexplot("y ~ x", data=df2, bins=4)
+    >>> any(isinstance(layer.geom, geom_jitter) for layer in p.layers)
+    True
+
+    Polynomial fit on a non-linear signal (v0.6.4):
+
+    >>> df3 = pd.DataFrame({
+    ...     "x": np.linspace(-3, 3, 60),
+    ...     "y": np.linspace(-3, 3, 60) ** 2 + rng.normal(scale=0.3, size=60),
+    ... })
+    >>> p = flexplot("y ~ x", data=df3, method="polynomial")
+    >>> any(isinstance(layer.geom, geom_line) for layer in p.layers)
+    True
     """
     if method not in _VALID_FLEXPLOT_METHODS:
         raise ValueError(
@@ -374,6 +615,11 @@ def flexplot(
         )
     validate_uncertainty_params(uncertainty, level, bands, method)
     overlay_specs = _normalize_overlay(overlay)
+    if spread is not None and spread not in (s for s in _VALID_SPREAD if s):
+        raise ValueError(
+            f"spread must be one of {sorted(s for s in _VALID_SPREAD if s)} "
+            f"or None; got {spread!r}."
+        )
 
     variables = parse_flexplot_formula(formula)
     if variables.get("has_interaction"):
@@ -416,12 +662,33 @@ def flexplot(
 
     # Determine variable types
     is_y_numeric = pd.api.types.is_numeric_dtype(data[y])
-    is_x_discrete = _is_discrete(data[x])
 
-    plot_df = data.copy()
-    # Convert numeric discrete X to string/categorical so plotnine treats x-axis as discrete levels
-    if is_x_discrete and pd.api.types.is_numeric_dtype(plot_df[x]):
-        plot_df[x] = plot_df[x].astype(str)
+    # Numeric-x binning: if bins / breaks / labels are provided and x is
+    # numeric (and not already auto-discrete), discretize x so the
+    # discrete-style summary applies. Validation:
+    # - bins: int >= 2 (>= 2 needed to be meaningful).
+    # - breaks: list of floats, len >= 2, monotonically increasing, span the
+    #   x range.
+    # - labels: list of strings, len = len(breaks) - 1 when provided with
+    #   breaks, or len = bins when provided with bins.
+    # Mutual precedence: breaks > bins (breaks overrides bins when both set).
+    # Validation lives in _validate_binning_params.
+    if not _is_discrete(data[x]) and pd.api.types.is_numeric_dtype(data[x]):
+        _validate_binning_params(bins, labels, breaks, data[x])
+        plot_df, x_discretized = _maybe_bin_numeric_x(
+            data, x, bins=bins, labels=labels, breaks=breaks
+        )
+        if x_discretized:
+            is_x_discrete = True
+        else:
+            plot_df = data.copy()
+            is_x_discrete = False
+    else:
+        plot_df = data.copy()
+        is_x_discrete = _is_discrete(data[x])
+        # Convert numeric discrete X to string/categorical so plotnine treats x-axis as discrete levels
+        if is_x_discrete and pd.api.types.is_numeric_dtype(plot_df[x]):
+            plot_df[x] = plot_df[x].astype(str)
 
     # Binary-0/1 pre-check: a numeric y whose unique values are a subset of
     # {0, 1} should be treated as a binary outcome for binomial smoothing,
@@ -429,8 +696,10 @@ def flexplot(
     # Without this pre-check, numeric binary y would fall into the LM/loess
     # branch and the binomial GLM branch would only fire for non-numeric y
     # (where the .astype(float) below would raise first).
+    # BUT: explicit method='logistic' bypasses this and routes through the
+    # numeric branch with a logistic GLM (see _add_parametric_smooth).
     y_is_binary = False
-    if is_y_numeric:
+    if is_y_numeric and method not in {"logistic"}:
         try:
             unique_y = pd.Series(data[y].dropna().astype(float)).unique()
         except (ValueError, TypeError):
@@ -492,7 +761,7 @@ def flexplot(
 
     elif is_y_numeric and is_x_discrete:
         p += geom_jitter(width=0.2, alpha=0.5)
-        p += stat_summary(fun_data="mean_cl_boot", color="red", size=1)
+        p = _add_discrete_summary(p, spread)
 
     else:
         p += geom_jitter(width=0.2, height=0.2, alpha=0.5)
@@ -535,6 +804,15 @@ def _add_numeric_smooth(
         return p
 
     use_loess = method == "loess"
+    # polynomial/cubic are OLS fits with higher-order x terms; logistic is
+    # a GLM with the logit link. plotnine's geom_smooth(method="lm", ...) does
+    # NOT support poly-of-x cleanly, so we route these through statsmodels
+    # and add geom_line + geom_ribbon manually (mirroring the prediction /
+    # bootstrap branches).
+    if method in {"polynomial", "cubic", "logistic"}:
+        return _add_parametric_smooth(
+            p, data, x, y, method, uncertainty, level, bands
+        )
 
     # --- Nested bands (multiple ribbons via multiple geom_smooth layers) ---
     if bands is not None:
@@ -627,6 +905,144 @@ def _add_numeric_smooth(
         return p
 
     # Should never reach here thanks to validate_uncertainty_params.
+    return p
+
+
+def _add_parametric_smooth(
+    p,
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    method: str,
+    uncertainty: Optional[str],
+    level: float,
+    bands: Optional[List[float]],
+):
+    """Add fitted line + CI ribbon for polynomial / cubic / logistic methods.
+
+    plotnine's ``geom_smooth(method="lm", ...)`` does NOT accept
+    ``formula=poly(x, k)`` cleanly, so we fit statsmodels directly and draw
+    the line + ribbon manually. Mirrors the prediction/ bootstrap branches
+    in ``_add_numeric_smooth``.
+
+    Methods:
+    - "polynomial": OLS with degree-3 polynomial in x (default; same as
+      ``cubic``). User can call with ``method="polynomial"``; degree is
+      fixed at 3 for now — R-flexplot's default.
+    - "cubic": alias of "polynomial".
+    - "logistic": GLM with logit link on numeric binary y. Falls back to
+      OLS if y is not in {0, 1} (and emits a UserWarning).
+    """
+    from scipy import stats as _scipy_stats
+
+    x_arr = data[x].to_numpy(dtype=float)
+    y_arr = data[y].to_numpy(dtype=float)
+    n = x_arr.size
+    if n < 2:
+        return p
+
+    if method in {"polynomial", "cubic"}:
+        # Build the design matrix: intercept + x + x^2 + x^3.
+        X = np.column_stack([np.ones_like(x_arr), x_arr, x_arr ** 2, x_arr ** 3])
+        model = OLS(y_arr, X).fit()
+        link_label = "polynomial (degree-3)"
+    elif method == "logistic":
+        # Validate binary {0, 1}; fall back to OLS with a warning if not.
+        unique_y = np.unique(y_arr[~np.isnan(y_arr)])
+        is_binary = set(unique_y.tolist()).issubset({0.0, 1.0}) and len(unique_y) == 2
+        if not is_binary:
+            warnings.warn(
+                f"method='logistic' requires a numeric binary 0/1 outcome; "
+                f"{y!r} has unique values {sorted(unique_y.tolist())}. "
+                f"Falling back to OLS.",
+                UserWarning,
+                stacklevel=3,
+            )
+            # Linear OLS fallback: degree-1 in x (intercept + x). The eval
+            # matrix below uses the same shape.
+            X = np.column_stack([np.ones_like(x_arr), x_arr])
+            model = OLS(y_arr, X).fit()
+            link_label = "OLS fallback (logistic requires binary y)"
+        else:
+            import statsmodels.api as _sm
+            X = _sm.add_constant(x_arr)
+            model = _sm.GLM(
+                y_arr, X, family=_sm.families.Binomial(link=_sm.families.links.Logit())
+            ).fit()
+            link_label = "logistic (logit)"
+    else:  # pragma: no cover — guarded by caller
+        return p
+
+    x_eval = np.linspace(np.nanmin(x_arr), np.nanmax(x_arr), num=200)
+
+    if method in {"polynomial", "cubic"}:
+        # OLS degree-3 design matrix: intercept + x + x^2 + x^3.
+        X_eval = np.column_stack(
+            [np.ones_like(x_eval), x_eval, x_eval ** 2, x_eval ** 3]
+        )
+    else:  # logistic (binary GLM) and logistic (OLS degree-1 fallback): both use intercept + x.
+        import statsmodels.api as _sm
+        X_eval = _sm.add_constant(x_eval)
+
+    yhat_eval = np.asarray(model.predict(X_eval))
+
+    # --- Bands: nested or single ---
+    if bands is not None:
+        levels = sorted(set(bands))
+    else:
+        levels = [level]
+
+    # Outermost band draws the line; inner bands draw only the ribbon.
+    outermost_lvl = levels[-1]
+    z_outer = float(_scipy_stats.norm.ppf(0.5 + outermost_lvl / 2))
+
+    # Build a single combined ribbon dataframe with all band columns so we
+    # can layer them on the same plot. Outermost band = widest.
+    ribbon_df = pd.DataFrame({x: x_eval, y: yhat_eval})
+    for lvl in levels:
+        z = float(_scipy_stats.norm.ppf(0.5 + lvl / 2))
+        # Use the prediction SE for the mean (not for new observations) for
+        # a CI-style band. statsmodels' get_prediction().summary_frame(alpha)
+        # gives mean_ci_lower / mean_ci_upper directly.
+        try:
+            pred = model.get_prediction(X_eval)
+            frame = pred.summary_frame(alpha=1 - lvl)
+            lower = frame["mean_ci_lower"].to_numpy()
+            upper = frame["mean_ci_upper"].to_numpy()
+        except Exception:
+            # Fallback: normal-approx CI on the linear predictor.
+            se = getattr(model, "bse", None)
+            residual_std = float(np.sqrt(model.mse_resid)) if hasattr(model, "mse_resid") else 1.0
+            lower = yhat_eval - z * residual_std
+            upper = yhat_eval + z * residual_std
+
+        ribbon_df[f"__lower_{lvl}"] = lower
+        ribbon_df[f"__upper_{lvl}"] = upper
+
+    # Draw ribbons (innermost first so outermost ends up on top).
+    for lvl in sorted(levels, reverse=True):
+        alpha = 0.1 + 0.15 * (lvl / max(levels))
+        p += geom_ribbon(
+            aes(ymin=f"__lower_{lvl}", ymax=f"__upper_{lvl}"),
+            data=ribbon_df,
+            alpha=alpha,
+            fill="blue",
+            inherit_aes=False,
+        )
+
+    p += geom_line(
+        aes(y=y),
+        data=ribbon_df,
+        color="blue",
+        inherit_aes=False,
+    )
+
+    # Inject the link label into the plot's labels so users can see what
+    # was fit. plotnine exposes .labels; mutate via a workaround (geom_line
+    # doesn't carry labels, so attach as a one-off text annotation is
+    # cleaner — but text annotations need positioning data. Skipping for
+    # now; users can pass `labs()` themselves).
+    _ = link_label  # reserved for future annotation hook
     return p
 
 

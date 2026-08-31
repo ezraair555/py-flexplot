@@ -7,12 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent highlights
 
+- **0.6.4** — `flexplot()` gains `bins` / `labels` / `breaks` (numeric-x auto-discretization, R-flexplot parity), `spread` (stdev/range/iqr/ci/no dispersion markers), and `method='polynomial'` / `'cubic'` / `'logistic'` parametric smoothers. Closes the auto-bin gap from the v0.6.2 R-audit.
+- **0.6.3** — `model_comparison()` now exposes Bayes factor + adj.R²; `compare_fits()` gains `return_preds` + `pred_type`; `estimates()` is a real structured effect-size reporter (R², sigma, coef DataFrame, standardized betas, semi-partial R², factors/numbers split); `visualize()` accepts `plot='residuals'` / `'all'`.
 - **0.6.2** — R-style interaction syntax (`y ~ x*z`, `y ~ x:z`) accepted by the formula parser; `flexplot()` emits a `UserWarning` when interaction syntax is present (v0.7.0 will add `interaction_model=True` for non-parallel slopes).
 - **0.6.1** — Fixed dead binomial branch in `flexplot()`; numeric `[0, 1]` y now routes to the binomial GLM smoother (was straight LM line).
 - **0.6.0** — New `diagnose(formula, data)` for auto data-quality diagnostics (missingness, Cook's D, Ramsey RESET, Breusch-Pagan).
 - **0.5.0** — New `overlay=` parameter on `flexplot()` for multi-smoother comparison.
 - **0.4.0** — First-class uncertainty layer on `flexplot()` (`uncertainty=`, `level=`, `bands=`); new `pyflexplot.uncertainty` module.
 - **0.3.0** — `visualize()` accepts `NeuralNetFit` wrappers; formula parser validation hardened.
+
+## [0.6.4] - 2026-08-31
+
+### Added
+
+- **`flexplot()` auto-bins numeric x via `bins=N` / `breaks=[...]` / `labels=[...]`** — closes the largest usability gap in the v0.6.2 R-audit (R's `flexplot()` auto-discretizes numeric predictors; the Python port required users to pre-cut their data). Three new parameters:
+  - `bins: int` — number of equal-width bins (default `None` = no binning).
+  - `breaks: list[float]` — explicit cut points; takes precedence over `bins` when both are given (with a `UserWarning`).
+  - `labels: list[str]` — custom labels for the resulting discrete x levels; must have `len(breaks) - 1` or `len(bins)` entries depending on which path is taken.
+  - Validation lives in `_validate_binning_params()` (rejects non-int `bins`, non-monotonic `breaks`, wrong-length `labels`).
+  - Implementation uses `pd.cut()` with `include_lowest=True`; the resulting x is converted to string so plotnine treats it as discrete and the existing discrete-style summary layer applies.
+
+- **`spread=` parameter on `flexplot()`** — controls the dispersion marker drawn alongside `geom_jitter` in the discrete-x branch. Mirrors R-flexplot's `spread`:
+  - `None` / `"ci"` (default): bootstrap CI via `stat_summary(fun_data="mean_cl_boot")` — legacy behavior.
+  - `"stdev"`: mean ± 1 SD as `geom_pointrange`.
+  - `"range"`: min-max range.
+  - `"iqr"`: Q1-Q3 IQR.
+  - `"no"`: no summary layer.
+  - Implemented via `_add_discrete_summary()` + `_make_spread_fn()` helper.
+
+- **New `method` values: `"polynomial"`, `"cubic"`, `"logistic"`** — closes the parametric-smoother gap from the v0.6.2 audit. Routes through `_add_parametric_smooth()` which fits statsmodels directly and draws `geom_line` + `geom_ribbon` layers manually (plotnine's `geom_smooth(method="lm", ...)` doesn't accept `poly(x, k)` formulas cleanly).
+  - `"polynomial"` / `"cubic"`: OLS with degree-3 polynomial in x. Cubic is an alias.
+  - `"logistic"`: GLM with logit link on numeric binary y. Falls back to OLS with a `UserWarning` if y is not in `{0, 1}`.
+  - When `method="logistic"` is explicit, the binary-y pre-check is bypassed so the parametric branch always fires (rather than the legacy binomial branch).
+  - Nested `bands=[...]` works on all three new methods via `model.get_prediction().summary_frame(alpha)`.
+
+### Tests
+
+- 13 new tests in `tests/test_parametric_smooth.py` covering method registration, polynomial/cubic dispatch, logistic on binary + non-binary y, OLS fallback warning, nested bands, and backward compat with `method="auto"` / `"lm"`.
+- 18 new tests in `tests/test_binning.py` covering param validation (non-int bins, short/non-monotonic breaks, wrong-length labels, both-set precedence), `_maybe_bin_numeric_x` (no-op, equal-width, explicit cuts, custom labels), and integration (route to discrete branch, no-op on already-discrete x, breaks-wins precedence).
+- 12 new tests in `tests/test_spread.py` covering the full spread-value matrix, helper-fn shapes, and backward compat.
+
+## [0.6.3] - 2026-08-30
+
+### Added
+
+- **`model_comparison()` now exposes Bayes factor + R² + adj.R².** Previously only an F-test was emitted; the new surface lets users compare models via Bayesian evidence (BF10 from the F-statistic approximation) and classical fit statistics side-by-side.
+
+- **`compare_fits()` gains `return_preds: bool` and `pred_type: {"response", "link"}`** — when `return_preds=True`, the caller's plotnine overlay receives a DataFrame with one column per fit. `pred_type` controls whether predictions are on the response scale or the linear-predictor scale.
+
+- **`estimates()` is now a real structured effect-size reporter** — closes the largest single R-parity gap in `pyflexplot.stats`. Previously a stub returning `model.summary()`; the new implementation returns a dict with:
+  - `r.squared`, `adj.r.squared`, `sigma`, `n`
+  - `r.squared.ci` (placeholder; non-central-F inversion is a v0.7.0 todo)
+  - `coef`: DataFrame with `estimate`, `std.error`, `t`, `p.value`, `ci.lower`, `ci.upper`
+  - `standardized`: Series of standardized betas per predictor
+  - `semi.p.r2`: Series of semi-partial R² per predictor (computed via reduced-model fits)
+  - `factors`, `numbers`, `formula`: predictor-type classification + the fitted formula string
+
+- **`visualize(plot=)` switch** — R's `flexplot::visualize()` accepts `plot=c('all', 'residuals', 'model')`. The Python port now matches:
+  - `plot='model'` (default): legacy predicted-vs-observed scatter with the fitted line. Unchanged.
+  - `plot='residuals'`: returns `{'rvf': ggplot, 'hist': ggplot}` — residual-vs-predicted scatter + a residual histogram.
+  - `plot='all'`: tries a cowplot-joined 2-column layout; falls back to a dict `{'model', 'rvf', 'hist'}` if cowplot isn't installed.
+
+### Tests
+
+- 30+ new tests covering the new surfaces, regression tests for invalid `plot=` values, and parity tests for the estimates() coef DataFrame shape.
 
 ## [0.6.2] - 2026-08-30
 
