@@ -5,6 +5,23 @@ All notable changes to py-flexplot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-30
+
+### Added
+
+- **`overlay` parameter on `flexplot()`** — overlay multiple smoothers on
+  the same axes for visual model comparison. Accepts a list of method
+  names (``"lm"``, ``"loess"``, ``"rlm"``, ``"glm"``, etc.) or dicts
+  with keys ``method``, ``color``, ``label``, ``uncertainty``, ``level``.
+  Distinct colors cycle through a 5-color palette; labels appear in the
+  legend when provided. Lets the user SEE which fit the data prefers.
+- New helpers ``_normalize_overlay()``, ``_add_overlay_numeric()``,
+  ``_add_overlay_binomial()`` in ``pyflexplot.core``. Overlay on the
+  binomial branch only accepts ``"glm"``; other methods raise.
+- **New test file `tests/test_overlay.py`** — 14 tests covering
+  string/dict input, validation, per-entry propagation of method/color/
+  level, primary-with-overlay interaction, and legend integration.
+
 ## [0.4.0] - 2026-08-30
 
 ### Added

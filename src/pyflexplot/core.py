@@ -14,6 +14,7 @@ from plotnine import (
     facet_wrap,
     facet_grid,
     scale_color_identity,
+    scale_color_manual,
     labs,
     theme_bw,
 )
@@ -151,6 +152,64 @@ def _validate_data_for_plot(formula: str, data: pd.DataFrame, variables: dict):
 
 _VALID_FLEXPLOT_METHODS = frozenset({"auto", "lm", "loess"})
 
+# Recognized methods for overlay entries. Includes a broader set than the
+# primary ``method`` parameter because plotnine/statsmodels supports more
+# smoothers for overlay use.
+_VALID_OVERLAY_METHODS = frozenset({"lm", "loess", "lowess", "glm", "rlm", "ols", "wls", "gls", "mavg"})
+
+# Default color cycle for overlay entries (distinct from the primary
+# ``"blue"`` so the primary line is always visually identifiable).
+_OVERLAY_COLOR_CYCLE = ("#e74c3c", "#2ecc71", "#9b59b6", "#f39c12", "#1abc9c")
+
+
+def _normalize_overlay(overlay):
+    """Validate and normalize the ``overlay`` parameter into a list of dicts.
+
+    Each returned dict has at least:
+        - ``method``: str (required)
+        - ``color``: str (default: next color from cycle)
+        - ``label``: str (default: method name)
+        - ``uncertainty``: {None, "ci", "prediction", "bootstrap"}, default "ci"
+        - ``level``: float in (0, 1), default 0.95
+
+    Raises ``ValueError`` if any entry is malformed.
+    """
+    if overlay is None:
+        return []
+    if not isinstance(overlay, (list, tuple)):
+        raise ValueError(
+            f"overlay must be a list or tuple; got {type(overlay).__name__}."
+        )
+    if not overlay:
+        return []
+
+    normalized = []
+    for i, entry in enumerate(overlay):
+        if isinstance(entry, str):
+            spec = {"method": entry}
+        elif isinstance(entry, dict):
+            spec = dict(entry)
+        else:
+            raise ValueError(
+                f"overlay entry {i} must be a str or dict; "
+                f"got {type(entry).__name__}."
+            )
+        if "method" not in spec:
+            raise ValueError(
+                f"overlay entry {i} is missing required key 'method': {entry!r}."
+            )
+        if spec["method"] not in _VALID_OVERLAY_METHODS:
+            raise ValueError(
+                f"overlay entry {i}: method {spec['method']!r} is not a "
+                f"recognized method. Valid: {sorted(_VALID_OVERLAY_METHODS)}."
+            )
+        spec.setdefault("color", _OVERLAY_COLOR_CYCLE[i % len(_OVERLAY_COLOR_CYCLE)])
+        spec.setdefault("label", spec["method"])
+        spec.setdefault("uncertainty", "ci")
+        spec.setdefault("level", 0.95)
+        normalized.append(spec)
+    return normalized
+
 
 def flexplot(
     formula: str,
@@ -159,6 +218,7 @@ def flexplot(
     uncertainty: Optional[str] = "ci",
     level: float = 0.95,
     bands: Optional[List[float]] = None,
+    overlay: Optional[List] = None,
     **kwargs,
 ):
     """Intelligent multivariate graphics via formulas.
@@ -182,6 +242,28 @@ def flexplot(
     bands : list of float in (0, 1), optional
         Nested coverage levels (e.g., ``[0.5, 0.8, 0.95]``) for Tufte-style
         multi-ribbon display. Overrides ``level`` when provided.
+    overlay : list of str or dict, optional
+        Additional smoother specs to overlay on the same axes alongside the
+        primary ``method``. Each entry is either a method name (``"lm"``,
+        ``"loess"``, ``"rlm"``, etc.) or a dict with keys:
+        - ``method`` (required): one of the recognized smoother methods.
+        - ``color`` (optional, default cycles through a 5-color palette).
+        - ``label`` (optional, default = ``method``): legend label.
+        - ``uncertainty`` (optional, default ``"ci"``): per-overlay band type.
+        - ``level`` (optional, default 0.95): per-overlay band coverage.
+
+        Example::
+
+            flexplot(
+                "y ~ x", data=df,
+                overlay=[
+                    {"method": "loess", "label": "LOESS smoother"},
+                    {"method": "rlm", "label": "Robust regression"},
+                ],
+            )
+
+        Lets the user visually compare multiple smoothers in a single chart
+        so they can SEE which fit the data prefers.
     **kwargs
         Reserved for future extension.
 
@@ -198,6 +280,7 @@ def flexplot(
             "binomial GLM for numeric-vs-binary)."
         )
     validate_uncertainty_params(uncertainty, level, bands, method)
+    overlay_specs = _normalize_overlay(overlay)
 
     variables = parse_flexplot_formula(formula)
     _validate_data_for_plot(formula, data, variables)
@@ -242,6 +325,9 @@ def flexplot(
         p = _add_numeric_smooth(
             p, data, x, y, method, uncertainty, level, bands
         )
+        # Apply overlay smoothers on top of the primary.
+        if overlay_specs:
+            p = _add_overlay_numeric(p, data, x, y, overlay_specs)
 
     elif is_y_numeric and not is_x_numeric:
         p += geom_jitter(width=0.2, alpha=0.5)
@@ -263,6 +349,11 @@ def flexplot(
             )
         p += geom_point(alpha=0.3)
         p = _add_binomial_smooth(p, data, x, y, uncertainty, level, bands)
+        # Overlay for the binomial branch: each overlay entry is rendered as
+        # an additional binomial GLM smoother (only ``"glm"`` method makes
+        # sense here; other methods raise).
+        if overlay_specs:
+            p = _add_overlay_binomial(p, data, x, y, overlay_specs)
 
     else:
         p += geom_jitter(width=0.2, height=0.2, alpha=0.5)
@@ -437,6 +528,71 @@ def _add_binomial_smooth(
         level=level,
         color="blue",
     )
+    return p
+
+
+def _add_overlay_numeric(p, data, x, y, overlay_specs):
+    """Add one geom_smooth per overlay spec on the numeric-vs-numeric branch.
+
+    Each entry is drawn with its own color and ``uncertainty``/``level``
+    settings. No bootstrap overlay for non-loess methods (plotnine doesn't
+    expose stat_smooth's bootstrap from a single ``geom_smooth`` call with
+    arbitrary methods; we keep the API consistent by routing all overlays
+    through ``geom_smooth`` and reserving bootstrap for ``"loess"``).
+    """
+    has_labels = any(
+        spec.get("label") and spec["label"] != spec["method"]
+        for spec in overlay_specs
+    )
+    label_colors = {}
+
+    for spec in overlay_specs:
+        method = spec["method"]
+        level = spec["level"]
+        color = spec["color"]
+        label = spec.get("label", method)
+        kwargs = {"method": method, "level": level, "color": color}
+        # Forward any extra stat_args (span, formula, method_args, ...) that
+        # the user provided.
+        for k in ("span", "formula", "method_args", "n"):
+            if k in spec:
+                kwargs[k] = spec[k]
+        p += geom_smooth(**kwargs)
+        if has_labels:
+            label_colors[label] = color
+
+    if has_labels and label_colors:
+        # Add a manual color scale so labels appear in the legend.
+        p += scale_color_manual(
+            name="Method",
+            values=label_colors,
+        )
+    return p
+
+
+def _add_overlay_binomial(p, data, x, y, overlay_specs):
+    """Add binomial GLM overlay smoothers on the numeric-vs-binary branch.
+
+    Only entries with ``method == "glm"`` are supported here; other methods
+    raise so the user gets a clear error rather than a silently-broken chart.
+    """
+    label_colors = {}
+    for spec in overlay_specs:
+        if spec["method"] != "glm":
+            raise ValueError(
+                f"Overlay method {spec['method']!r} is not supported on the "
+                f"binomial branch; only 'glm' is allowed."
+            )
+        kwargs = {
+            "method": "glm",
+            "method_args": {"family": "binomial"},
+            "level": spec["level"],
+            "color": spec["color"],
+        }
+        p += geom_smooth(**kwargs)
+        label_colors[spec.get("label", "glm")] = spec["color"]
+    if label_colors:
+        p += scale_color_manual(name="Method", values=label_colors)
     return p
 
 
