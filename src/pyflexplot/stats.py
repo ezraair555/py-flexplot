@@ -15,22 +15,38 @@ def _check_statsmodels_attrs(model, attrs):
         )
 
 
-def model_comparison(model1, model2):
+def model_comparison(model1, model2, return_pred_difference=False):
     """
-    Statistically compares the fits of two nested statsmodels results.
+    Statistically compares the fits of two statsmodels results.
 
     Returns a tuple ``(DataFrame, p_value)`` where the DataFrame carries
     per-model AIC, BIC, LogLik, R-squared, adjusted R-squared, and Bayes
     factor (computed from BIC via the Kass & Raftery 1995 approximation).
-    The second element is the p-value from the likelihood-ratio test.
+    Pass ``return_pred_difference=True`` for a third element: a pandas
+    Series of quantiles (0/25/50/75/100%) of the two models' in-sample
+    prediction differences — R's ``model.comparison()`` returns this as
+    its ``pred.difference`` component (v0.8.0+).
 
     The Bayes factor is attached to the more likely model (BIC-wise):
     the model with the lower BIC gets a BF ≥ 1 in its row, the other
     model gets 1/BF. This mirrors R's ``flexplot::model.comparison()``
     behavior.
 
-    The LRT always subtracts the smaller log-likelihood from the larger
-    one and uses the corresponding positive degrees-of-freedom difference.
+    Non-nested models (v0.8.0+): AIC / BIC / Bayes factor / R² are valid
+    for both nested and non-nested pairs; the likelihood-ratio p-value is
+    only defined for nested models. When the two models' predictor sets
+    are not a subset-superset pair, ``p_value`` is ``None`` (v0.7.x
+    raised ``ValueError`` in that case — behavior change, documented).
+
+    Parameters
+    ----------
+    model1, model2 : statsmodels regression results
+        The models to compare. Nested-ness is detected via the models'
+        ``exog_names`` (one set must contain the other).
+    return_pred_difference : bool, default False
+        When True, return ``(DataFrame, p_value, pred_difference)`` where
+        ``pred_difference`` is a Series of quantiles of prediction
+        differences, or None if predictions couldn't be aligned.
     """
     required = ("aic", "bic", "llf", "df_model")
     _check_statsmodels_attrs(model1, required)
@@ -80,14 +96,40 @@ def model_comparison(model1, model2):
         lr_stat = 2 * (model1.llf - model2.llf)
         df_diff = int(round(model1.df_model - model2.df_model))
 
-    if df_diff <= 0:
-        raise ValueError(
-            f"Degrees-of-freedom difference must be positive for a valid LRT; got {df_diff}. "
-            "Models may not be nested or may be in the wrong order."
-        )
+    # Nesting detection (v0.8.0+): R's model.comparison() supports non-nested
+    # models (AIC/BIC/BF need no nesting); the LRT p-value is only defined
+    # when one model's predictors are a subset of the other's. When models
+    # are not nested (or the df difference is degenerate), we return
+    # p_value=None instead of raising (v0.7.x raised ValueError).
+    names1 = set(getattr(model1.model, "exog_names", None) or [])
+    names2 = set(getattr(model2.model, "exog_names", None) or [])
+    nested = bool(names1) and bool(names2) and (
+        names1.issubset(names2) or names2.issubset(names1)
+    )
 
-    p_val = 1 - stats.chi2.cdf(lr_stat, df_diff)
+    if nested and df_diff > 0:
+        p_val = float(1 - stats.chi2.cdf(lr_stat, df_diff))
+    else:
+        p_val = None
 
+    # --- pred.difference (v0.8.0+, R-parity) ---
+    # R's model.comparison() returns list(statistics=..., pred.difference=...);
+    # the pred.difference component holds quantiles of the two models'
+    # in-sample prediction differences. Computed here via no-arg predict()
+    # (statsmodels returns in-sample fitted values), available on all
+    # RegressionResults. Non-fatal on failure (set to None).
+    pred_difference = None
+    try:
+        p1 = np.asarray(model1.predict(), dtype=float)
+        p2 = np.asarray(model2.predict(), dtype=float)
+        if p1.shape == p2.shape and p1.size > 0:
+            diff = pd.Series(p1 - p2)
+            pred_difference = diff.quantile([0.0, 0.25, 0.5, 0.75, 1.0])
+    except Exception:
+        pred_difference = None
+
+    if return_pred_difference:
+        return res, p_val, pred_difference
     return res, p_val
 
 
@@ -557,3 +599,87 @@ def color_table(df: pd.DataFrame, cmap: str = "viridis"):
     Ported from fifer: Returns a styled pandas dataframe.
     """
     return df.style.background_gradient(cmap=cmap)
+
+
+def standardized_beta(model):
+    """Compute standardized (beta) coefficients for a fitted OLS model.
+
+    Standalone accessor (v0.8.0+) mirroring R's ``flexplot::standardized.beta()``.
+    Same values as ``estimates(model)["standardized"]`` — this standalone
+    form is convenient when only the betas are needed.
+
+    Standardized beta for coefficient j: ``b_j * sd(x_j) / sd(y)``.
+
+    Note: for categorical predictors (patsy dummies in the design matrix),
+    ``sd(x_j)`` is the SD of the 0/1 indicator column — R reports these
+    differently; treat dummy-column betas with care.
+
+    Returns
+    -------
+    pd.Series
+        Indexed by non-intercept predictor name.
+    """
+    if not hasattr(model, "params"):
+        raise TypeError(
+            "standardized_beta requires a statsmodels regression result "
+            "with .params."
+        )
+    exog_names = list(getattr(model.model, "exog_names", None) or [])
+    if not exog_names:
+        raise TypeError("standardized_beta requires .model.exog_names.")
+
+    y = np.asarray(model.model.endog, dtype=float)
+    X = np.asarray(model.model.exog, dtype=float)
+    sd_y = float(np.std(y, ddof=1))
+    out = {}
+    for i, name in enumerate(exog_names):
+        if name in ("Intercept", "const"):
+            continue
+        sd_x = float(np.std(X[:, i], ddof=1)) if X.shape[0] > 1 else np.nan
+        if sd_y == 0 or not np.isfinite(sd_x) or sd_x == 0:
+            out[name] = np.nan
+        else:
+            out[name] = float(model.params[i] * sd_x / sd_y)
+    return pd.Series(out, dtype=float)
+
+
+def rsq_change(reduced_model, full_model):
+    """Change in R-squared from reduced to full model (semi-partial R²).
+
+    Standalone accessor (v0.8.0+) mirroring R's ``flexplot::rsq.change()``.
+    Positive values indicate the extra predictors in ``full_model`` explain
+    that share of variance beyond ``reduced_model``.
+
+    Returns
+    -------
+    float
+        ``full_model.rsquared - reduced_model.rsquared``.
+    """
+    if not hasattr(reduced_model, "rsquared") or not hasattr(full_model, "rsquared"):
+        raise TypeError(
+            "rsq_change requires two statsmodels results exposing .rsquared."
+        )
+    return float(full_model.rsquared) - float(reduced_model.rsquared)
+
+
+def bf_bic(model1, model2):
+    """Bayes factor for model1 over model2, from BICs (Kass & Raftery 1995).
+
+    Standalone accessor (v0.8.0+) mirroring R's ``flexplot::bf.bic()``:
+
+        BF_12 = exp((BIC_2 - BIC_1) / 2)
+
+    Values > 1 favor model1; < 1 favor model2. Same computation as the
+    ``BayesFactor`` column inside ``model_comparison()``.
+
+    Returns
+    -------
+    float
+    """
+    for name, model in (("model1", model1), ("model2", model2)):
+        if not hasattr(model, "bic"):
+            raise TypeError(
+                f"bf_bic requires statsmodels results with .bic; "
+                f"{name} is missing it."
+            )
+    return float(np.exp((model2.bic - model1.bic) / 2.0))

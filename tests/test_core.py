@@ -345,14 +345,19 @@ def test_added_plot_residual_alignment():
     assert isinstance(p, ggplot)
 
 
-def test_added_plot_residual_alignment_with_missing():
+def test_added_plot_handles_missing_data_by_dropna():
+    """v0.8.0: missing rows are dropped before residualizing, so the plot
+    renders (alignment is guaranteed by construction — residuals and the
+    display variable come from the same dropna'd frame)."""
     df = pd.DataFrame({
         "y": [1.0, 2.0, np.nan, 4.0],
         "x": [1.0, np.nan, 3.0, 4.0],
         "z": ["A", "B", "A", "B"],
     })
-    with pytest.raises(ValueError, match="Residual lengths"):
-        added_plot("y ~ x + z", data=df)
+    p = added_plot("y ~ x + z", data=df)
+    assert isinstance(p, ggplot)
+    # dropna over (x, z, y) keeps the 2 fully-observed rows (0 and 3).
+    assert len(p.data) == 2
 
 
 # --- Interaction-syntax tests (v0.6.2) --------------------------------------

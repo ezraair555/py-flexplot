@@ -3,7 +3,7 @@ import warnings
 
 import pandas as pd
 import numpy as np
-from typing import List, Optional
+from typing import List, Optional, Union
 from plotnine import (
     ggplot,
     aes,
@@ -1895,59 +1895,125 @@ def _get_model_predictions(
     return pd.Series(pred, index=data.index)
 
 
-def added_plot(formula: str, data: pd.DataFrame, **kwargs):
-    """
-    Generates an added variable plot (partial regression plot).
+def added_plot(
+    formula: str,
+    data: pd.DataFrame,
+    lm_formula: Optional[str] = None,
+    method: str = "loess",
+    x: Optional[Union[str, int]] = None,
+    offset: bool = True,
+    **kwargs,
+):
+    """Create an added variable plot (R-flexplot ``added.plot()`` parity).
+
+    Residualizes the outcome on a conditioning model, adds the mean of the
+    outcome back to the residuals (R's "maintain interpretation" step), and
+    plots the chosen display variable against those residuals.
+
+    R-flexplot semantics (v0.8.0+; supersedes the v0.6.x behavior which
+    plotted the first variable against doubly-residualized data):
+
+    - ``formula``: ``y ~ var1 + var2 + ...``.
+    - Default display variable (``x=None``) is the **last** variable on the
+      RHS of ``formula`` (R's default): ``y ~ x + z`` residualizes ``y`` on
+      ``x`` and plots ``z``.
+    - ``lm_formula`` (optional): the fitted model used to residualize ``y``
+      (e.g. ``"weight.loss ~ health * muscle.gain"``). Defaults to the
+      remaining formula variables (all but the display variable).
+    - ``x`` (optional): which variable to display. Either the column name
+      or its 1-based position in ``formula``'s predictor list (R uses
+      ``x=2`` for the second).
+    - ``offset`` (default ``True``): add the mean of ``y`` back onto the
+      residuals so the y-axis keeps the outcome's scale (R does this).
+      Pass ``False`` for raw centered residuals.
+    - ``method``: smoother for the fitted line (default ``"loess"``,
+      matching R).
     """
     variables = parse_flexplot_formula(formula)
     _validate_data_for_plot(formula, data, variables, require_numeric_x=True)
 
     y_var = variables["y"]
-    x_var = variables["x"]
-    other_vars = [v for v in variables["all_x"] if v != x_var]
-
-    if not other_vars:
+    all_x = [v for v in variables["all_x"] if ":" not in v]  # atoms only
+    if not all_x:
+        # Degenerate: only an interaction term (or nothing) — fall back.
         return flexplot(formula, data, **kwargs)
 
-    # Residuals of Y on other vars
+    # Resolve the display variable (R default: last on the RHS).
+    if x is None:
+        x_var = all_x[-1]
+    elif isinstance(x, int):
+        if not (1 <= x <= len(all_x)):
+            raise ValueError(
+                f"x={x} is out of range; formula has {len(all_x)} predictors."
+            )
+        x_var = all_x[x - 1]
+    elif isinstance(x, str):
+        if x not in all_x:
+            raise ValueError(
+                f"x={x!r} not found among formula predictors {all_x}."
+            )
+        x_var = x
+    else:
+        raise TypeError(f"x must be a str, int, or None; got {type(x).__name__}.")
+
+    # Conditioning variables: from lm_formula if given, else all formula
+    # predictors except the display variable (R: "the fitted model that is
+    # then residualized"). Handle interaction-expanded atoms.
+    if lm_formula is not None:
+        if not isinstance(lm_formula, str):
+            raise TypeError(
+                f"lm_formula must be a string; got {type(lm_formula).__name__}."
+            )
+        lm_variables = parse_flexplot_formula(
+            lm_formula if "~" in lm_formula else f"{y_var} ~ {lm_formula}"
+        )
+        lm_rhs = [v for v in lm_variables["all_x"]]
+        if lm_variables["y"] != y_var:
+            raise ValueError(
+                f"lm_formula {lm_formula!r} must share the outcome {y_var!r}; "
+                f"it uses {lm_variables['y']!r}."
+            )
+        condition_vars = [v for v in lm_variables["all_x"] if ":" not in v]
+        if x_var in condition_vars:
+            condition_vars.remove(x_var)
+    else:
+        condition_vars = [v for v in all_x if v != x_var]
+        if not condition_vars:
+            # Only one predictor: nothing to condition on; plain flexplot.
+            return flexplot(formula, data, **kwargs)
+
+    # Residualize y on the conditioning variables.
+    clean_cond = [re.sub(r"\W", "_", v) for v in condition_vars]
+    mapping = {orig: clean for orig, clean in zip(condition_vars, clean_cond)}
+    needed = list(dict.fromkeys(condition_vars + [x_var, y_var]))
+    fit_df = data[needed].dropna().copy()
+    for orig, clean in mapping.items():
+        if orig != clean:
+            fit_df[clean] = fit_df.pop(orig)
     y_res_model = OLS.from_formula(
-        f"{y_var} ~ {' + '.join(other_vars)}", data=data
+        f"{y_var} ~ {' + '.join(clean_cond)}", data=fit_df
     ).fit()
-    y_residuals = y_res_model.resid
+    y_residuals = y_res_model.resid + y_res_model.model.endog.mean() if offset \
+        else y_res_model.resid
 
-    # Residuals of X on other vars
-    x_res_model = OLS.from_formula(
-        f"{x_var} ~ {' + '.join(other_vars)}", data=data
-    ).fit()
-    x_residuals = x_res_model.resid
+    plot_df = pd.DataFrame({
+        x_var: fit_df[x_var].to_numpy(),
+        f"{y_var}|cond": np.asarray(y_residuals),
+    })
 
-    # Align residuals on the shared original index to avoid positional mismatch.
-    res_df = pd.concat(
-        {
-            f"res_{y_var}": y_residuals,
-            f"res_{x_var}": x_residuals,
-        },
-        join="inner",
-        axis=1,
+    aes_kwargs = {"x": x_var, "y": f"{y_var}|cond"}
+    p = ggplot(plot_df, aes(**aes_kwargs))
+    p += geom_point(alpha=0.5)
+    # Reuse the numeric-smooth machinery, honoring method / uncertainty /
+    # level / bands kwargs when provided.
+    kwargs_unc = kwargs.pop("uncertainty", "ci")
+    kwargs_level = kwargs.pop("level", 0.95)
+    kwargs_bands = kwargs.pop("bands", None)
+    p = _add_numeric_smooth(
+        p, plot_df, x_var, f"{y_var}|cond",
+        method if method in _VALID_FLEXPLOT_METHODS else ("loess" if method == "auto" else method),
+        kwargs_unc, kwargs_level, kwargs_bands,
     )
-
-    if len(res_df) != len(data):
-        raise ValueError(
-            f"Residual lengths do not match original data length: "
-            f"{len(res_df)} vs {len(data)}. Check for missing data in "
-            f"the variables used by the formula."
-        )
-
-    p = (
-        ggplot(res_df, aes(x=f"res_{x_var}", y=f"res_{y_var}"))
-        + geom_point(alpha=0.5)
-        + geom_smooth(method="lm", color="blue")
-        + labs(
-            x=f"{x_var} | others",
-            y=f"{y_var} | others",
-            title="Added Variable Plot",
-        )
-        + theme_bw()
-    )
-
+    p += labs(x=x_var, y=f"{y_var} | conditional", title="Added Variable Plot")
+    p += theme_bw()
     return p
