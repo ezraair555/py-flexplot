@@ -34,6 +34,7 @@ from plotnine import (
     element_text,
 )
 import statsmodels.api as sm
+import statsmodels.formula.api as smf
 from statsmodels.regression.linear_model import OLS
 from statsmodels.nonparametric.smoothers_lowess import lowess
 
@@ -593,7 +594,22 @@ def _make_spread_fn(center_fn, spread_fn):
 
 
 _VALID_FLEXPLOT_METHODS = frozenset(
-    {"auto", "lm", "loess", "quadratic", "polynomial", "cubic", "logistic", "rlm", "poisson", "Gamma"}
+    {
+        "auto",
+        "lm",
+        "loess",
+        "quadratic",
+        "polynomial",
+        "cubic",
+        "logistic",
+        "rlm",
+        "poisson",
+        "Gamma",
+        # Mixed-effects extensions (v0.8.2+):
+        "mixedlm",
+        "lmer",
+        "glmer",
+    }
 )
 
 # Recognized methods for overlay entries. Includes a broader set than the
@@ -1254,6 +1270,8 @@ def flexplot(
     formula: str,
     data: pd.DataFrame,
     method: str = "auto",
+    random_effects: Optional[str] = None,
+    mixed_backend: str = "auto",
     uncertainty: Optional[str] = "ci",
     level: float = 0.95,
     bands: Optional[List[float]] = None,
@@ -1285,7 +1303,7 @@ def flexplot(
         accepted since v0.6.2; see Notes below.
     data : pd.DataFrame
         Non-empty data frame holding the referenced columns.
-    method : {"auto", "lm", "loess", "quadratic", "polynomial", "cubic", "logistic", "rlm", "poisson", "Gamma"}
+    method : {"auto", "lm", "loess", "quadratic", "polynomial", "cubic", "logistic", "rlm", "poisson", "Gamma", "mixedlm", "lmer", "glmer"}
         Smoother for the numeric-vs-numeric branch. ``"auto"`` selects LM.
         ``"quadratic"`` / ``"polynomial"``: degree-2 OLS in x (matches R).
         ``"cubic"``: degree-3 OLS in x.
@@ -1293,8 +1311,23 @@ def flexplot(
         ``"rlm"``: robust regression via statsmodels RLM (Huber).
         ``"poisson"``: GLM with log link (requires non-negative y).
         ``"Gamma"``: GLM with inverse link (requires strictly positive y).
+        ``"mixedlm"`` / ``"lmer"``: linear mixed-effects model with a
+        random intercept (and optional random slope via
+        ``random_effects='(1 + x|group)'``).
+        ``"glmer"``: binomial mixed-effects model (random intercept).
         Non-conforming outcomes for logistic/poisson/Gamma fall back to OLS
         with a ``UserWarning``.
+    random_effects : str, optional
+        Random-effects spec for mixed methods:
+        - Column name (e.g., ``"school"``) => random intercept ``(1|school)``.
+        - lme4-style mini spec (e.g., ``"(1|school)"``,
+          ``"(1 + x|school)"``).
+        Required when ``method`` is ``"mixedlm"``, ``"lmer"``, or
+        ``"glmer"``.
+    mixed_backend : {"auto", "statsmodels"}, default "auto"
+        Mixed-model backend selector. ``"auto"`` currently resolves to
+        statsmodels; this argument is reserved for future ``pymer4``/R
+        integration.
     uncertainty : {None, "ci", "prediction", "bootstrap"}, default "ci"
         Type of uncertainty band drawn around the fitted line.
         - ``None``: no fit, just the scatter.
@@ -1706,7 +1739,7 @@ def flexplot(
     # BUT: explicit method='logistic' bypasses this and routes through the
     # numeric branch with a logistic GLM (see _add_parametric_smooth).
     y_is_binary = False
-    if is_y_numeric and method not in {"logistic"}:
+    if is_y_numeric and method not in {"logistic", "glmer"}:
         try:
             unique_y = pd.Series(plot_input_df[y].dropna().astype(float)).unique()
         except (ValueError, TypeError):
@@ -1836,7 +1869,16 @@ def flexplot(
             )
         else:
             p = _add_numeric_smooth(
-                p, data, x, y, method, uncertainty, level, bands
+                p,
+                data,
+                x,
+                y,
+                method,
+                uncertainty,
+                level,
+                bands,
+                random_effects=random_effects,
+                mixed_backend=mixed_backend,
             )
         if overlay_specs:
             p = _add_overlay_numeric(p, data, x, y, overlay_specs)
@@ -2062,6 +2104,8 @@ def _add_numeric_smooth(
     uncertainty: Optional[str],
     level: float,
     bands: Optional[List[float]],
+    random_effects: Optional[str] = None,
+    mixed_backend: str = "auto",
 ):
     """Add fitted line + uncertainty band for numeric-vs-numeric.
 
@@ -2076,9 +2120,29 @@ def _add_numeric_smooth(
     # logistic/poisson/Gamma are GLMs; rlm is robust regression.  plotnine's
     # geom_smooth does NOT support all of these cleanly, so we route them
     # through statsmodels and add geom_line + geom_ribbon manually.
-    if method in {"quadratic", "polynomial", "cubic", "logistic", "rlm", "poisson", "Gamma"}:
+    if method in {
+        "quadratic",
+        "polynomial",
+        "cubic",
+        "logistic",
+        "rlm",
+        "poisson",
+        "Gamma",
+        "mixedlm",
+        "lmer",
+        "glmer",
+    }:
         return _add_parametric_smooth(
-            p, data, x, y, method, uncertainty, level, bands
+            p,
+            data,
+            x,
+            y,
+            method,
+            uncertainty,
+            level,
+            bands,
+            random_effects=random_effects,
+            mixed_backend=mixed_backend,
         )
 
     use_loess = method == "loess"
@@ -2186,6 +2250,8 @@ def _add_parametric_smooth(
     uncertainty: Optional[str],
     level: float,
     bands: Optional[List[float]],
+    random_effects: Optional[str] = None,
+    mixed_backend: str = "auto",
 ):
     """Add fitted line + CI ribbon for polynomial / cubic / logistic methods.
 
@@ -2195,14 +2261,71 @@ def _add_parametric_smooth(
     in ``_add_numeric_smooth``.
 
     Methods:
-    - "polynomial": OLS with degree-3 polynomial in x (default; same as
-      ``cubic``). User can call with ``method="polynomial"``; degree is
-      fixed at 3 for now — R-flexplot's default.
-    - "cubic": alias of "polynomial".
-    - "logistic": GLM with logit link on numeric binary y. Falls back to
-      OLS if y is not in {0, 1} (and emits a UserWarning).
+    - "quadratic"/"polynomial": degree-2 OLS.
+    - "cubic": degree-3 OLS.
+    - "logistic": GLM with logit link on numeric binary y.
+    - "mixedlm"/"lmer": linear mixed-effects with a random intercept.
+    - "glmer": binomial mixed-effects with a random intercept.
     """
     from scipy import stats as _scipy_stats
+
+    def _parse_random_effects_spec(spec: Optional[str], x_name: str):
+        if not spec:
+            raise ValueError(
+                "Mixed-effects methods require random_effects=. "
+                "Use a group column name (e.g., random_effects='school') "
+                "or an lme4-style mini spec (e.g., '(1|school)' or "
+                "'(1 + x|school)')."
+            )
+        text = str(spec).strip()
+        if text in data.columns:
+            return "1", text
+        m = re.match(r"^\(\s*(.+?)\s*\|\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)$", text)
+        if not m:
+            raise ValueError(
+                f"Invalid random_effects specification {spec!r}. "
+                "Expected a column name or '(effects|group)'."
+            )
+        re_formula_raw, group_col = m.group(1).strip(), m.group(2).strip()
+        if group_col not in data.columns:
+            raise ValueError(
+                f"random_effects group column {group_col!r} not found in data."
+            )
+        if re_formula_raw == "1":
+            return "1", group_col
+        re_formula = re_formula_raw.replace(x_name, "x")
+        allowed = {"1 + x", "x", "0 + x", "1+x", "0+x"}
+        if re_formula not in allowed:
+            raise NotImplementedError(
+                "Supported random_effects formulas are '(1|g)' and "
+                "'(1 + x|g)' (or '(x|g)')."
+            )
+        if re_formula in {"x", "0 + x", "0+x"}:
+            re_formula = "0 + x"
+        else:
+            re_formula = "1 + x"
+        return re_formula, group_col
+
+    def _add_fe_band(ribbon_df: pd.DataFrame, fe_mean: np.ndarray, fe_cov: np.ndarray):
+        if bands is not None:
+            levels = sorted(set(bands))
+        else:
+            levels = [level]
+        for lvl in levels:
+            z = float(_scipy_stats.norm.ppf(0.5 + lvl / 2))
+            se = np.sqrt(np.maximum(np.einsum("ij,jk,ik->i", fe_mean, fe_cov, fe_mean), 0.0))
+            ribbon_df[f"__lower_{lvl}"] = ribbon_df[y].to_numpy() - z * se
+            ribbon_df[f"__upper_{lvl}"] = ribbon_df[y].to_numpy() + z * se
+        for lvl in sorted(levels, reverse=True):
+            alpha = 0.1 + 0.15 * (lvl / max(levels))
+            p_local = geom_ribbon(
+                aes(ymin=f"__lower_{lvl}", ymax=f"__upper_{lvl}"),
+                data=ribbon_df,
+                alpha=alpha,
+                fill="blue",
+                inherit_aes=False,
+            )
+            yield p_local
 
     x_arr = data[x].to_numpy(dtype=float)
     y_arr = data[y].to_numpy(dtype=float)
@@ -2277,6 +2400,49 @@ def _add_parametric_smooth(
                 family=sm.families.Gamma(link=sm.families.links.InversePower()),
             ).fit()
             link_label = "Gamma (inverse)"
+    elif method in {"mixedlm", "lmer"}:
+        if mixed_backend not in {"auto", "statsmodels"}:
+            raise ValueError(
+                f"mixed_backend must be 'auto' or 'statsmodels'; got {mixed_backend!r}."
+            )
+        re_formula, group_col = _parse_random_effects_spec(random_effects, x)
+        fit_df = pd.DataFrame({"y": y_arr, "x": x_arr, "__group": data[group_col]})
+        try:
+            model = smf.mixedlm(
+                "y ~ x",
+                data=fit_df,
+                groups=fit_df["__group"],
+                re_formula=re_formula,
+            ).fit(reml=True, method="lbfgs", disp=False)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to fit mixedlm/lmer model: {exc}"
+            ) from exc
+        link_label = "mixedlm/lmer"
+    elif method == "glmer":
+        if mixed_backend not in {"auto", "statsmodels"}:
+            raise ValueError(
+                f"mixed_backend must be 'auto' or 'statsmodels'; got {mixed_backend!r}."
+            )
+        unique_y = np.unique(y_arr[~np.isnan(y_arr)])
+        is_binary = set(unique_y.tolist()).issubset({0.0, 1.0}) and len(unique_y) == 2
+        if not is_binary:
+            raise ValueError(
+                f"method='glmer' requires a numeric binary 0/1 outcome; "
+                f"{y!r} has unique values {sorted(unique_y.tolist())}."
+            )
+        _, group_col = _parse_random_effects_spec(random_effects, x)
+        fit_df = pd.DataFrame({"y": y_arr, "x": x_arr, "__group": data[group_col]})
+        from statsmodels.genmod.bayes_mixed_glm import BinomialBayesMixedGLM
+        try:
+            model = BinomialBayesMixedGLM.from_formula(
+                "y ~ x",
+                {"__group": "0 + C(__group)"},
+                fit_df,
+            ).fit_vb()
+        except Exception as exc:
+            raise RuntimeError(f"Failed to fit glmer model: {exc}") from exc
+        link_label = "glmer"
     else:  # pragma: no cover — guarded by caller
         return p
 
@@ -2289,10 +2455,65 @@ def _add_parametric_smooth(
         X_eval = np.column_stack(
             [np.ones_like(x_eval), x_eval, x_eval ** 2, x_eval ** 3]
         )
-    else:
+    elif method in {"logistic", "rlm", "poisson", "Gamma"}:
         # logistic, rlm, poisson, Gamma (and logistic OLS fallback) are all
         # linear-in-x models: intercept + x.
         X_eval = sm.add_constant(x_eval)
+    elif method in {"mixedlm", "lmer"}:
+        X_eval = np.column_stack([np.ones_like(x_eval), x_eval])
+    elif method == "glmer":
+        X_eval = np.column_stack([np.ones_like(x_eval), x_eval])
+    else:  # pragma: no cover
+        X_eval = sm.add_constant(x_eval)
+
+    if method in {"mixedlm", "lmer"}:
+        fe_names = list(model.fe_params.index)
+        fe_mean = np.asarray(model.fe_params.to_numpy(), dtype=float)
+        cov_df = model.cov_params()
+        if hasattr(cov_df, "loc"):
+            fe_cov = np.asarray(cov_df.loc[fe_names, fe_names], dtype=float)
+        else:
+            fe_cov = np.asarray(cov_df, dtype=float)[: len(fe_names), : len(fe_names)]
+        design = np.column_stack([np.ones_like(x_eval), x_eval])
+        yhat_eval = design @ fe_mean
+        ribbon_df = pd.DataFrame({x: x_eval, y: yhat_eval})
+        for layer in _add_fe_band(ribbon_df, design, fe_cov):
+            p += layer
+        p += geom_line(aes(y=y), data=ribbon_df, color="blue", inherit_aes=False)
+        _ = link_label
+        return p
+    if method == "glmer":
+        beta = np.asarray(model.fe_mean, dtype=float)
+        design = np.column_stack([np.ones_like(x_eval), x_eval])
+        eta = design @ beta
+        yhat_eval = 1.0 / (1.0 + np.exp(-eta))
+        ribbon_df = pd.DataFrame({x: x_eval, y: yhat_eval})
+        # Approximate FE-only bands from posterior SD; this ignores covariance,
+        # but gives a stable uncertainty envelope without requiring MCMC draws.
+        if bands is not None:
+            levels = sorted(set(bands))
+        else:
+            levels = [level]
+        fe_sd = np.asarray(getattr(model, "fe_sd", np.full_like(beta, np.nan)), dtype=float)
+        se_eta = np.sqrt(np.maximum((design ** 2) @ (fe_sd ** 2), 0.0))
+        for lvl in levels:
+            z = float(_scipy_stats.norm.ppf(0.5 + lvl / 2))
+            lo = 1.0 / (1.0 + np.exp(-(eta - z * se_eta)))
+            hi = 1.0 / (1.0 + np.exp(-(eta + z * se_eta)))
+            ribbon_df[f"__lower_{lvl}"] = lo
+            ribbon_df[f"__upper_{lvl}"] = hi
+        for lvl in sorted(levels, reverse=True):
+            alpha = 0.1 + 0.15 * (lvl / max(levels))
+            p += geom_ribbon(
+                aes(ymin=f"__lower_{lvl}", ymax=f"__upper_{lvl}"),
+                data=ribbon_df,
+                alpha=alpha,
+                fill="blue",
+                inherit_aes=False,
+            )
+        p += geom_line(aes(y=y), data=ribbon_df, color="blue", inherit_aes=False)
+        _ = link_label
+        return p
 
     yhat_eval = np.asarray(model.predict(X_eval))
 

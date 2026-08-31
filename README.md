@@ -16,7 +16,7 @@ This is **not** a 1:1 port. The Python port covers the parts of R's `flexplot` a
 - ✅ `diagnose()` (missingness, Cook's D, Ramsey RESET, Breusch-Pagan).
 - ⚠️ R-style interaction syntax (`y ~ x*z`) is parsed but the fit remains additive — pass `interaction_model=True` (v0.7.0+) for non-parallel slopes per color group.
 - ✅ `randomForest` (and any sklearn estimator with `.predict()`) — use `pyflexplot.ml.RFAdapter` to wrap a fitted estimator and pass it to `compare_fits()`. See [`docs/api/ml.md`](docs/api/ml.md).
-- ❌ Mixed-effects models (`lme4` / `glmer`) are not ported; `statsmodels.MixedLM` is not a drop-in for `lme4`. See [`docs/api/coverage.md`](docs/api/coverage.md) for the plan.
+- ⚠️ Mixed-effects models are now available in `flexplot()` via `method="mixedlm"|"lmer"|"glmer"` with `random_effects=...` (v0.8.2+). This is a practical Python bridge, not a full `lme4` clone. For stricter `lme4` parity, use `pymer4`/`rpy2`.
 
 ## Included R Packages
 - **flexplot**: Intelligent multivariate graphics via formulas.
@@ -173,6 +173,14 @@ remains in [`CHANGELOG.md`](CHANGELOG.md).
 - Added explicit R-style `compare_fits()` compatibility args (`report_se`, `re`, `num_points`, `clusters`) with transparent no-op warning.
 - Added `third_eye()` placeholder endpoint (exported in package API) that raises `NotImplementedError` with guidance.
 - Added/updated parity tests; test suite status at release: `509 passed, 4 skipped`.
+
+### 0.8.2 (2026-08-31)
+- Added mixed-effects support in `flexplot()`:
+  - `method="mixedlm"` / `method="lmer"` for linear mixed models via `statsmodels.MixedLM`
+  - `method="glmer"` for binomial mixed models via `statsmodels.BinomialBayesMixedGLM`
+  - `random_effects=` supports a group column name or compact forms like `(1|group)` and `(1 + x|group)`.
+- Added mixed-model tests in `tests/test_mixed_models.py`.
+- Updated parity docs to reflect that mixed models are now available with explicit `lme4`-parity caveats.
 
 ### 0.8.0 (2026-08-31)
 - Implemented the major parity batch from the v0.8.0 review:

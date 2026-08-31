@@ -47,7 +47,8 @@ exactly what's covered and what's not.
 | Return data | `return.data=TRUE` | ✅ | `return_data=True` | Returns `{"plot", "data"}`. |
 | Related-samples view | `related=TRUE` | ✅ | `related=True` | Implemented as paired-difference plot (2-level predictor, equal group sizes). |
 | R-style interaction syntax | `y ~ x*z` | ✅ | `formula` parser + `interaction_model=True` (v0.7.0+) | Parsed since v0.6.2; **default** fit is additive (parallel slopes per color group, `UserWarning` emitted). `interaction_model=True` fits the actual interaction term and overlays non-parallel per-color-group lines. |
-| Mixed-effects models (`glmer`) | `method="glmer"` | ❌ | — | `statsmodels.MixedLM` is not a drop-in for `lme4`. **Deferred.** |
+| Mixed-effects models (linear) | `method="lmer"` / `method="mixedlm"` | ✅ | `method="lmer"` / `"mixedlm"` + `random_effects=` | Random-intercept/slope (limited to `x`) via statsmodels MixedLM. |
+| Mixed-effects models (binomial) | `method="glmer"` | ⚠️ | `method="glmer"` + `random_effects=` | Implemented with `statsmodels.BinomialBayesMixedGLM` random-intercept path; not a full `lme4::glmer` drop-in. |
 | Random forests | `method="rf"` | ✅ | `RFAdapter(estimator, ...)` | Use [`pyflexplot.ml.RFAdapter`](ml.md) to wrap a fitted sklearn estimator and pass it to `compare_fits()`. v0.6.7+. |
 | Diagonal slope=1 reference | implicit | ✅ | `ghost_line="slope1"` | Added in v0.7.3. |
 
@@ -159,14 +160,15 @@ The Python signature is `(DataFrame, p_value)` — a 2-tuple. R's
 
 ## Out-of-scope items (and why)
 
-- **`lme4` / `glmer`** — statsmodels' `MixedLM` is *not* a drop-in. R's `lme4`
-  uses ML/REML with explicit nested random-effects formulas (e.g.
-  `(1|school) + (1|class)`); `statsmodels.MixedLM` only supports a single
-  grouping variable per model and the parameterizations differ. Bridging
-  cleanly would require either a thin wrapper that calls R via `rpy2`
-  (heavy dep, defeats the purpose of a Python port) or a custom re-implementation
-  using a different backend (e.g. `patsy` + `formulaic` for the random-effects
-  syntax, plus a fitting backend). Neither fits within py-flexplot's scope.
+- **`lme4` / `glmer` parity caveat** — py-flexplot now supports mixed models
+  directly (`method="mixedlm"|"lmer"|"glmer"` + `random_effects=`), but this
+  is still not a complete `lme4` clone. Current limits:
+  - one grouping factor per fit;
+  - random formula support is intentionally narrow (`(1|g)` / `(1 + x|g)`);
+  - `glmer` is implemented through `BinomialBayesMixedGLM` (Bayesian VB fit),
+    so estimates may differ from `lme4::glmer` MLE/REML behavior.
+  If you need stricter `lme4`-matching behavior, use a bridge backend such as
+  `pymer4` (R `lme4` under the hood via `rpy2`).
 - **`randomForest` / sklearn estimators** — covered via
   [`pyflexplot.ml.RFAdapter`](ml.md). Wraps any sklearn estimator with
   `.predict()` and exposes a uniform surface to `compare_fits()` and

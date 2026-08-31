@@ -93,8 +93,10 @@ adapter = make_rf_adapter(rf, data=df, response_var="y")
 
 ## Limitations and out-of-scope items
 
-- **Mixed-effects / hierarchical models** (`lme4`, `glmer`) are not in
-  scope. See [`coverage.md`](coverage.md) for the rationale.
+- **Mixed-effects / hierarchical models** for `flexplot()` now exist in the
+  core API (`method="mixedlm"|"lmer"|"glmer"` + `random_effects=`), but they
+  are still outside this **ml adapter** module's scope. `RFAdapter` is for
+  sklearn-style estimators with `.predict()`, not mixed-model fitting.
 - **`estimates()` does not work on RFAdapter** — it expects a
   statsmodels model. Use `model_comparison()` to compare a statsmodels
   fit against an RFAdapter, but don't expect `.rsquared` or

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent highlights
 
+- **0.8.2** — `flexplot()` mixed-effects support: `method="mixedlm"|"lmer"` (linear mixed models) and `method="glmer"` (binomial mixed model path) with `random_effects=` syntax (`group`, `(1|group)`, `(1 + x|group)`). Includes dedicated mixed-model tests and docs updates.
 - **0.8.0** — Parity fixes from the man-page-level R-flexplot review (`docs/parity_review_2026-08-31.md`): non-nested `model_comparison` + `pred.difference`; `estimates()` factor-level tables + mean differences with Cohen's d + `mc=`; `added_plot()` R semantics (last variable, `x=`, `lm_formula=`, mean offset); R `spread` tokens (`quartiles`, `sterr`); `jitter=` / `alpha=` / `raw_data=`; panel-repetition semantics for `ghost_line` with facets; standalone `standardized_beta()` / `rsq_change()` / `bf_bic()`.
 - **0.7.5** — `eta_squared()` upgraded from a single model-row to per-term partial η²_p via `statsmodels.stats.anova.anova_lm(model, typ=...)` (type-I/II/III SS); new `scatter3D()` for 2D projection of `y ~ x + z` (points or tile mode).
 - **0.7.4** — New `pyflexplot.meansplot()` ports R's `fifer::meansplot()` for descriptive-statistics visualizations (mean + error bar per group, with `error="se"|"sd"|"ci"|"range"|"iqr"|"no"`).
@@ -23,6 +24,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **0.5.0** — New `overlay=` parameter on `flexplot()` for multi-smoother comparison.
 - **0.4.0** — First-class uncertainty layer on `flexplot()` (`uncertainty=`, `level=`, `bands=`); new `pyflexplot.uncertainty` module.
 - **0.3.0** — `visualize()` accepts `NeuralNetFit` wrappers; formula parser validation hardened.
+
+## [0.8.2] - 2026-08-31
+
+### Added
+
+- `flexplot()` mixed-effects methods:
+  - `method="mixedlm"` and `method="lmer"` (alias) using `statsmodels.MixedLM`.
+  - `method="glmer"` using `statsmodels.BinomialBayesMixedGLM` (random-intercept path).
+- New mixed-model controls:
+  - `random_effects=` required for mixed methods. Supports a grouping column name, `(1|group)`, and `(1 + x|group)` / `(x|group)`.
+  - `mixed_backend=` with current values `"auto"` / `"statsmodels"` (future bridge hook).
+- Test coverage in `tests/test_mixed_models.py` for method aliases, random-effects syntax, and binomial mixed-model path.
+
+### Changed
+
+- Coverage docs and README now describe mixed-effects support as available with explicit non-drop-in caveats versus `lme4`.
+- `docs/api/ml.md` now clarifies that mixed models are handled in `flexplot()` core, not in sklearn adapter wrappers.
+
+### Notes
+
+- This remains a pragmatic parity bridge, not a full `lme4` clone:
+  - one grouping factor per fit,
+  - narrow random-formula support,
+  - `glmer` path is Bayesian-VB and may differ from `lme4::glmer` MLE/REML estimates.
 
 ## [0.8.0] - 2026-08-31
 

@@ -17,7 +17,9 @@ p = flexplot(formula, data, method="auto", uncertainty="ci", level=0.95)
   - `panel`: (Optional) Variables after `|` used for faceting (row/column panels).
   - **R-style interaction syntax** (v0.6.2+): `y ~ x*z` expands to `y ~ x + z + x:z` for column lookup; `y ~ x:z` is also accepted. Numeric binary `[0, 1]` y routes to the binomial GLM branch (v0.6.1+). See [Interactions](#interactions) below.
 - **data** (pd.DataFrame): The dataset to plot.
-- **method** (str): The smoothing method for the numeric-vs-numeric branch. Options: `"auto"`, `"lm"` (linear model), `"loess"` (locally weighted regression), `"polynomial"` / `"cubic"` (degree-3 OLS in x, v0.6.4+), `"logistic"` (GLM with logit link on numeric binary y, v0.6.4+).
+- **method** (str): The smoothing method for the numeric-vs-numeric branch. Options: `"auto"`, `"lm"`, `"loess"`, `"quadratic"` / `"polynomial"` (degree-2 OLS), `"cubic"` (degree-3 OLS), `"logistic"` (binomial GLM), `"rlm"` (robust linear model), `"poisson"`, `"Gamma"`, `"mixedlm"` / `"lmer"` (linear mixed effects), `"glmer"` (binomial mixed effects).
+- **random_effects** (str, mixed models): Required for `"mixedlm"`, `"lmer"`, and `"glmer"`. Accepts either a group column name (e.g., `"school"`) or a compact lme4-style form such as `"(1|school)"` or `"(1 + x|school)"`.
+- **mixed_backend** (str): Backend selector for mixed models. Current valid values are `"auto"` and `"statsmodels"` (`"auto"` resolves to statsmodels).
 - **uncertainty** (str, v0.4.0+): `{None, "ci", "prediction", "bootstrap"}`, default `"ci"`. Type of uncertainty band around the fitted line.
   - `None`: no fit, just the scatter.
   - `"ci"`: confidence interval on the mean response (plotnine built-in).
@@ -29,19 +31,19 @@ p = flexplot(formula, data, method="auto", uncertainty="ci", level=0.95)
 - **bins** (int, v0.6.4+): Discretize a numeric x into `bins` equal-width intervals before plotting. Routes to the discrete-style summary branch (geom_jitter + spread marker). Mutually exclusive with `breaks` (which wins with a `UserWarning`).
 - **labels** (list of str, v0.6.4+): Custom labels for the discrete x levels produced by `bins` / `breaks`. Length must equal `bins` or `len(breaks) - 1`.
 - **breaks** (list of float, v0.6.4+): Explicit cut points for numeric-x binning. Takes precedence over `bins` when both are given.
-- **spread** ({None, "ci", "stdev", "range", "iqr", "no"}, v0.6.4+): Dispersion marker for the discrete-x branch. `None` (default) preserves the legacy bootstrap CI; `"stdev"` / `"range"` / `"iqr"` use a pointrange; `"no"` omits the summary.
+- **spread** ({None, "ci", "sterr", "stdev", "range", "iqr", "quartiles", "no"}, v0.6.4+): Dispersion marker for the discrete-x branch. `None` defaults to quartiles/IQR (R parity). `"ci"` gives bootstrap mean CI, `"sterr"` gives mean +/- 1.96*SE, `"quartiles"` is an alias for `"iqr"`, and `"no"` omits the summary.
 - **sample** (int, v0.6.5+): Subsample N rows for the plotnine layers; smoother fits still see the full DataFrame. No-op when `N >= len(data)`. Deterministic via `np.random.default_rng(0)`.
 - **ghost_line** ({None, "red", "dashed"}, v0.6.5+): Reference `geom_hline` at y=0. `"red"` for a solid red threshold; `"dashed"` for a black dashed reference.
 - **plot_type** ({None, "scatter", "line", "boxplot", "bar"}, v0.6.5+): Explicit geom override. Bypasses the auto-dispatch.
 - **return_data** (bool, v0.6.5+): When `True`, returns `{"plot": ggplot, "data": DataFrame}` instead of just the plot.
 - **ghost_reference** (pd.DataFrame, v0.6.6+): Reference dataset to overlay. Two patterns detected by column shape: `(x, y)` → gray geom_point (reference scatter); `(x, "pred")` → red dashed geom_line (prediction line).
 - **plot_string** (dict, v0.6.6+): Override axis/legend labels. Accepts keys `x`, `y`, `title`, `subtitle`, `caption`, `color`.
-- **related** (bool, v0.6.6+): R-flexplot's panel-linking flag. Currently a no-op on the Python side (plotnine already shares scales by default); accepted for R-parity, rejected if non-bool.
+- **related** (bool, v0.6.6+): Paired/related-samples mode for `y ~ x` with exactly two x levels and equal group sizes. Renders a difference-score plot (`level2 - level1`) with a zero reference line and spread marker.
 - **interaction_model** (bool, v0.7.0+): When `True` AND the formula contains `*` or `:` syntax, fit a statsmodels OLS with the actual interaction term and overlay non-parallel per-color-group regression lines. Default `False` preserves the legacy additive fit + `UserWarning`. Suppresses the additive-fit warning when set.
 
 ### Intelligent Mapping
-- **Numeric y ~ Numeric x**: Scatterplot + trend line. Smoother controlled by `method` (`"auto"` / `"lm"` / `"loess"` / `"polynomial"` / `"cubic"` / `"logistic"`).
-- **Numeric y ~ Categorical x**: Jittered dot plot + dispersion marker (bootstrap CI by default; `spread` controls the marker type).
+- **Numeric y ~ Numeric x**: Scatterplot + trend line. Smoother controlled by `method` (including parametric, robust, and mixed-model options).
+- **Numeric y ~ Categorical x**: Jittered dot plot + dispersion marker (quartiles/IQR by default; `spread` controls marker type).
 - **Numeric binary `[0, 1]` y ~ Numeric x** (v0.6.1+): Scatterplot + binomial GLM (logistic curve) — even when y is `int`/`float`, the binary pre-check routes to the binomial branch. Explicit `method="logistic"` bypasses this and uses the parametric branch.
 - **Non-numeric y ~ Numeric x** (e.g., string `["yes","no"]`): Scatterplot + binomial GLM.
 - **Categorical y ~ Categorical x**: Jittered dot plot of counts.
@@ -75,11 +77,19 @@ flexplot(
 # Disable the fit (scatter only).
 flexplot("y ~ x", data=df, uncertainty=None)
 
-# Polynomial fit on a non-linear signal.
+# Quadratic fit on a non-linear signal.
 flexplot(
     "y ~ x", data=df.assign(y=lambda d: d["x"] ** 2 + rng.normal(scale=0.3, size=200)),
     method="polynomial",
 )
+
+# Linear mixed model.
+df3 = pd.DataFrame({
+    "x": rng.normal(size=200),
+    "group": np.repeat(np.arange(20), 10),
+})
+df3["y"] = 1.0 + 0.8 * df3["x"] + rng.normal(size=200) + np.repeat(rng.normal(scale=0.6, size=20), 10)
+flexplot("y ~ x", data=df3, method="mixedlm", random_effects="group")
 
 # Auto-bin a numeric predictor into 4 equal-width groups (v0.6.4+).
 df2 = pd.DataFrame({
