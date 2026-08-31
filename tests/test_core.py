@@ -130,6 +130,61 @@ def test_flexplot_categorical_y_path():
     assert isinstance(p, ggplot)
 
 
+def test_flexplot_binary_y_routes_to_binomial_branch():
+    """Numeric [0, 1] y must draw the binomial GLM smoother, not LM.
+
+    Regression test for v0.6.1: before the fix, ``is_numeric_dtype([0, 1])``
+    returned True and the LM branch was always taken. This test guards the
+    new pre-check that routes binary y to the binomial branch.
+    """
+    from plotnine import geom_smooth
+
+    df = pd.DataFrame({
+        "y": [0, 1] * 30,
+        "x": list(range(60)),
+    })
+    p = flexplot("y ~ x", data=df)
+    smooth_layers = [
+        layer for layer in p.layers if isinstance(layer.geom, geom_smooth)
+    ]
+    assert len(smooth_layers) == 1
+    assert smooth_layers[0].stat.params.get("method") == "glm"
+    assert smooth_layers[0].stat.params.get("method_args") == {"family": "binomial"}
+
+
+def test_flexplot_binary_y_as_float_also_routes_to_binomial():
+    """Float [0.0, 1.0] y must also draw the binomial GLM smoother."""
+    from plotnine import geom_smooth
+
+    df = pd.DataFrame({
+        "y": [0.0, 1.0] * 30,
+        "x": list(range(60)),
+    })
+    p = flexplot("y ~ x", data=df)
+    smooth_layers = [
+        layer for layer in p.layers if isinstance(layer.geom, geom_smooth)
+    ]
+    assert len(smooth_layers) == 1
+    assert smooth_layers[0].stat.params.get("method") == "glm"
+
+
+def test_flexplot_non_binary_numeric_y_still_uses_lm():
+    """Numeric y with >2 unique values (e.g., 0/1/2) must NOT hit binomial."""
+    from plotnine import geom_smooth
+
+    df = pd.DataFrame({
+        "y": [0, 1, 2] * 20,
+        "x": list(range(60)),
+    })
+    p = flexplot("y ~ x", data=df)
+    smooth_layers = [
+        layer for layer in p.layers if isinstance(layer.geom, geom_smooth)
+    ]
+    assert len(smooth_layers) == 1
+    # Should be LM (or loess depending on default method), not glm/binomial.
+    assert smooth_layers[0].stat.params.get("method") != "glm"
+
+
 def test_flexplot_categorical_y_rejects_non_numeric_string():
     df = pd.DataFrame({
         "y": ["low", "medium", "high"] * 20,

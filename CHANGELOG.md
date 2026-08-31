@@ -5,6 +5,31 @@ All notable changes to py-flexplot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-08-30
+
+### Fixed
+
+- **Binomial GLM branch in `flexplot()` is now reachable for numeric binary
+  outcomes.** Previously, `pd.api.types.is_numeric_dtype([0, 1])` returned
+  True, so int/float binary y always routed to the LM/loess branch and the
+  binomial GLM branch was dead code (only reachable for string y, where the
+  internal `.astype(float)` raised first). Added a binary pre-check that
+  detects unique values ⊆ {0, 1} BEFORE the numeric-dtype dispatch and
+  routes that case to the binomial branch. Behavioral change: numeric
+  `[0, 1]` y now produces a logistic/sigmoid curve (was a straight LM
+  line). String `["yes", "no"]` and multi-level numeric `[0, 1, 2]`
+  behavior unchanged.
+
+### Tests
+
+- Updated `tests/test_uncertainty.py::test_flexplot_binomial_ci_renders_smooth`
+  to actually assert binomial branch parameters (`method="glm"`,
+  `method_args={"family": "binomial"}`).
+- Added 3 new tests to `tests/test_core.py`:
+  - `test_flexplot_binary_y_routes_to_binomial_branch`
+  - `test_flexplot_binary_y_as_float_also_routes_to_binomial`
+  - `test_flexplot_non_binary_numeric_y_still_uses_lm`
+
 ## [0.6.0] - 2026-08-30
 
 ### Added

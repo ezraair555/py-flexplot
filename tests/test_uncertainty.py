@@ -308,14 +308,12 @@ def test_flexplot_bands_creates_multiple_smooth_layers():
 
 
 def test_flexplot_binomial_ci_renders_smooth():
-    """Numeric-vs-binary branch with uncertainty='ci' keeps binomial smooth.
+    """Numeric binary y now correctly routes to the binomial GLM branch.
 
-    NOTE: The binomial branch in flexplot() is currently dead code for
-    numeric-binary y (pandas considers int[0,1] as ``is_numeric_dtype=True``,
-    so the LM branch is taken instead).  This test guards against future
-    refactors that wire up the binomial path correctly; until then, this
-    is a regression check that the LM branch keeps working for y=[0,1].
-    See repo issue: "binomial branch unreachable for int [0,1] y".
+    Before v0.6.1, ``pd.api.types.is_numeric_dtype([0, 1])`` returned True,
+    so the LM/loess branch was always taken for int/float [0, 1] y and the
+    binomial branch was dead code. The fix adds a binary pre-check that
+    detects [0, 1] values BEFORE the numeric-dtype dispatch.
     """
     from pyflexplot import flexplot
     from plotnine import geom_smooth
@@ -331,8 +329,10 @@ def test_flexplot_binomial_ci_renders_smooth():
     ]
     assert len(smooth_layers) >= 1
     layer = smooth_layers[0]
-    # Today the LM branch handles int [0,1] y. The level should still
-    # propagate to the stat params.
+    # Binomial GLM should now be drawn with method="glm" and
+    # method_args={"family": "binomial"} in the stat params.
+    assert layer.stat.params.get("method") == "glm"
+    assert layer.stat.params.get("method_args") == {"family": "binomial"}
     assert layer.stat.params.get("level") == 0.95
 
 

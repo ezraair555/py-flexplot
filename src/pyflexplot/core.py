@@ -312,6 +312,24 @@ def flexplot(
     is_y_numeric = pd.api.types.is_numeric_dtype(data[y])
     is_x_numeric = pd.api.types.is_numeric_dtype(data[x])
 
+    # Binary-0/1 pre-check: a numeric y whose unique values are a subset of
+    # {0, 1} should be treated as a binary outcome for binomial smoothing,
+    # regardless of pandas' is_numeric_dtype (which returns True for int).
+    # Without this pre-check, numeric binary y would fall into the LM/loess
+    # branch and the binomial GLM branch would only fire for non-numeric y
+    # (where the .astype(float) below would raise first).
+    y_is_binary = False
+    if is_y_numeric:
+        try:
+            unique_y = pd.Series(data[y].dropna().astype(float)).unique()
+        except (ValueError, TypeError):
+            unique_y = None
+        y_is_binary = (
+            unique_y is not None
+            and len(unique_y) == 2
+            and set(unique_y).issubset({0.0, 1.0})
+        )
+
     # Build the base aesthetic with color/group when needed so all geoms pick it up.
     aes_kwargs = {"x": x, "y": y}
     if color:
@@ -319,28 +337,26 @@ def flexplot(
         aes_kwargs["group"] = color
     p = ggplot(data, aes(**aes_kwargs))
 
-    # Determine plot type
-    if is_y_numeric and is_x_numeric:
-        p += geom_point(alpha=0.5)
-        p = _add_numeric_smooth(
-            p, data, x, y, method, uncertainty, level, bands
-        )
-        # Apply overlay smoothers on top of the primary.
+    # Determine plot type.
+    # Order matters: binary 0/1 must be detected before the generic numeric
+    # branch, otherwise int/float [0, 1] y falls into LM/loess.
+    if y_is_binary and is_x_numeric:
+        # Binomial GLM branch — numeric binary outcome.
+        p += geom_point(alpha=0.3)
+        p = _add_binomial_smooth(p, data, x, y, uncertainty, level, bands)
         if overlay_specs:
-            p = _add_overlay_numeric(p, data, x, y, overlay_specs)
-
-    elif is_y_numeric and not is_x_numeric:
-        p += geom_jitter(width=0.2, alpha=0.5)
-        p += stat_summary(fun_data="mean_cl_boot", color="red", size=1)
+            p = _add_overlay_binomial(p, data, x, y, overlay_specs)
 
     elif not is_y_numeric and is_x_numeric:
-        # Validate binary 0/1 for binomial smoothing.
+        # Non-numeric y (string/categorical) with numeric x. Try to coerce
+        # to numeric 0/1 for binomial smoothing; reject anything that
+        # doesn't fit a {0, 1} subset.
         try:
             unique_y = pd.Series(data[y].dropna().astype(float)).unique()
         except (ValueError, TypeError):
             raise ValueError(
-                f"Binomial smoothing requires a numeric binary 0/1 outcome; {y!r} "
-                f"could not be converted to numeric"
+                f"Binomial smoothing requires a numeric binary 0/1 outcome; "
+                f"{y!r} could not be converted to numeric"
             )
         if len(unique_y) != 2 or not set(unique_y).issubset({0.0, 1.0}):
             raise ValueError(
@@ -349,11 +365,20 @@ def flexplot(
             )
         p += geom_point(alpha=0.3)
         p = _add_binomial_smooth(p, data, x, y, uncertainty, level, bands)
-        # Overlay for the binomial branch: each overlay entry is rendered as
-        # an additional binomial GLM smoother (only ``"glm"`` method makes
-        # sense here; other methods raise).
         if overlay_specs:
             p = _add_overlay_binomial(p, data, x, y, overlay_specs)
+
+    elif is_y_numeric and is_x_numeric:
+        p += geom_point(alpha=0.5)
+        p = _add_numeric_smooth(
+            p, data, x, y, method, uncertainty, level, bands
+        )
+        if overlay_specs:
+            p = _add_overlay_numeric(p, data, x, y, overlay_specs)
+
+    elif is_y_numeric and not is_x_numeric:
+        p += geom_jitter(width=0.2, alpha=0.5)
+        p += stat_summary(fun_data="mean_cl_boot", color="red", size=1)
 
     else:
         p += geom_jitter(width=0.2, height=0.2, alpha=0.5)
