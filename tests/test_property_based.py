@@ -272,3 +272,262 @@ class TestEstimateSdInvariants:
         # Larger num_sds -> smaller SD (covers more of the range per unit SD).
         sd_larger = estimate_sd(mean, mean - half_range, mean + half_range, num_sds=num_sds * 2)
         assert sd_larger <= sd
+
+# ---------------------------------------------------------------------------
+# validate_uncertainty_params property tests (v0.4.0+)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateUncertaintyParams:
+    """Property tests for the uncertainty-param validator.
+
+    The validator should:
+    - Accept every value in VALID_UNCERTAINTY (including None).
+    - Accept every level in (0, 1) exclusive.
+    - Accept every band in (0, 1) exclusive, with no upper bound on length.
+    - Reject every other uncertainty string.
+    - Reject level/bands values at or outside [0, 1].
+    - Reject bootstrap uncertainty with method='lm'.
+    """
+
+    @given(
+        method=st.sampled_from(["auto", "lm", "loess"]),
+        uncertainty=st.sampled_from(["ci", "prediction", None]),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_valid_uncertainty_strings_accepted(self, method, uncertainty):
+        """Every (uncertainty, method) compatible pair is accepted."""
+        from pyflexplot.uncertainty import validate_uncertainty_params
+        validate_uncertainty_params(uncertainty, 0.95, None, method)
+
+    @given(
+        method=st.sampled_from(["auto", "lm", "loess"]),
+        level=st.floats(
+            min_value=0.001, max_value=0.999,
+            allow_nan=False, allow_infinity=False,
+        ),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_valid_levels_in_open_interval_accepted(self, method, level):
+        """Any level in (0, 1) is accepted with method in {auto, lm, loess}."""
+        from pyflexplot.uncertainty import validate_uncertainty_params
+        validate_uncertainty_params("ci", level, None, method)
+
+    @given(
+        n_bands=st.integers(min_value=1, max_value=5),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_valid_band_lists_accepted(self, n_bands):
+        """Any list of floats in (0, 1) is accepted."""
+        from pyflexplot.uncertainty import validate_uncertainty_params
+        # Generate n_bands values in (0.1, 0.99)
+        bands = [round(0.1 + 0.8 * i / max(n_bands - 1, 1), 4) for i in range(n_bands)]
+        validate_uncertainty_params("ci", None, bands, "auto")
+
+    @given(
+        unc=st.text(
+            min_size=1, max_size=20,
+            alphabet=st.characters(
+                whitelist_categories=("Lu", "Ll", "Nd"),
+                whitelist_characters="_-",
+            ),
+        ).filter(lambda s: s not in {"ci", "prediction", "bootstrap"}),
+        method=st.sampled_from(["auto", "lm", "loess"]),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_unknown_uncertainty_strings_rejected(self, unc, method):
+        """Any uncertainty string not in VALID_UNCERTAINTY raises ValueError."""
+        from pyflexplot.uncertainty import validate_uncertainty_params
+        with pytest.raises(ValueError, match="uncertainty must be one of"):
+            validate_uncertainty_params(unc, 0.95, None, method)
+
+    @given(
+        level=st.one_of(
+            st.just(0.0),
+            st.just(1.0),
+            st.just(-0.5),
+            st.just(1.5),
+            st.floats(min_value=-100, max_value=-0.001, allow_nan=False, allow_infinity=False),
+            st.floats(min_value=1.001, max_value=100, allow_nan=False, allow_infinity=False),
+        ),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_levels_outside_open_interval_rejected(self, level):
+        """Levels at 0, 1, or outside [0, 1] raise."""
+        from pyflexplot.uncertainty import validate_uncertainty_params
+        with pytest.raises(ValueError, match="level must be a number"):
+            validate_uncertainty_params("ci", level, None, "auto")
+
+    @given(
+        bad_member=st.one_of(
+            st.just(0.0),
+            st.just(1.0),
+            st.just(-0.1),
+            st.just(1.1),
+        ),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_band_lists_with_invalid_members_rejected(self, bad_member):
+        """Band lists containing values at or outside [0, 1] raise."""
+        from pyflexplot.uncertainty import validate_uncertainty_params
+        with pytest.raises(ValueError, match="Each band level"):
+            validate_uncertainty_params("ci", None, [0.5, bad_member, 0.95], "auto")
+
+    def test_bootstrap_with_lm_method_rejected(self):
+        """Bootstrap CI requires a non-parametric smoother; lm is rejected."""
+        from pyflexplot.uncertainty import validate_uncertainty_params
+        with pytest.raises(ValueError, match="only supported for method='loess'"):
+            validate_uncertainty_params("bootstrap", 0.95, None, "lm")
+
+    @given(
+        method=st.sampled_from(["loess", "auto"]),
+    )
+    @settings(max_examples=10, deadline=None)
+    def test_bootstrap_with_loess_or_auto_accepted(self, method):
+        """Bootstrap CI is accepted with method=loess or auto."""
+        from pyflexplot.uncertainty import validate_uncertainty_params
+        validate_uncertainty_params("bootstrap", 0.95, None, method)
+
+
+# ---------------------------------------------------------------------------
+# _normalize_overlay property tests (v0.5.0+)
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeOverlay:
+    """Property tests for the overlay normalization helper.
+
+    The normalizer should:
+    - Accept None and [] (returns []).
+    - Accept any list of strings (each becomes a dict with default color/label).
+    - Accept any list of dicts with valid `method` (each dict is enriched with
+      defaults for missing color/label/uncertainty/level).
+    - Reject any entry with a non-string, non-dict type.
+    - Reject any entry missing the `method` key.
+    - Reject any entry with an unrecognized method.
+    """
+
+    def test_none_returns_empty_list(self):
+        from pyflexplot.core import _normalize_overlay
+        assert _normalize_overlay(None) == []
+
+    def test_empty_list_returns_empty_list(self):
+        from pyflexplot.core import _normalize_overlay
+        assert _normalize_overlay([]) == []
+
+    @given(
+        method=st.sampled_from(
+            ["lm", "loess", "lowess", "glm", "rlm", "ols", "wls", "gls", "mavg"]
+        ),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_string_entry_normalizes_to_dict(self, method):
+        from pyflexplot.core import _normalize_overlay
+        result = _normalize_overlay([method])
+        assert len(result) == 1
+        spec = result[0]
+        assert spec["method"] == method
+        # Defaults populated:
+        assert spec["color"] in {"#e74c3c", "#2ecc71", "#9b59b6", "#f39c12", "#1abc9c"}
+        assert spec["label"] == method
+        assert spec["uncertainty"] == "ci"
+        assert spec["level"] == 0.95
+
+    @given(
+        n=st.integers(min_value=1, max_value=4),
+        method=st.sampled_from(
+            ["lm", "loess", "lowess", "glm", "rlm", "ols", "wls", "gls", "mavg"]
+        ),
+        color=st.from_regex(r"#[0-9a-fA-F]{6}", fullmatch=True),
+        label=st.text(
+            min_size=1, max_size=20,
+            alphabet=st.characters(whitelist_categories=("Lu", "Ll")),
+        ),
+    )
+    @settings(max_examples=15, deadline=None)
+    def test_dict_entry_preserves_user_values_and_fills_defaults(self, n, method, color, label):
+        from pyflexplot.core import _normalize_overlay
+        entries = [
+            {"method": method, "color": color, "label": label}
+            for _ in range(n)
+        ]
+        result = _normalize_overlay(entries)
+        assert len(result) == n
+        for spec in result:
+            assert spec["method"] == method
+            assert spec["color"] == color
+            assert spec["label"] == label
+            # Defaults filled:
+            assert spec["uncertainty"] == "ci"
+            assert spec["level"] == 0.95
+
+    @given(
+        method=st.sampled_from(
+            ["lm", "loess", "lowess", "glm", "rlm", "ols", "wls", "gls", "mavg"]
+        ),
+        index=st.integers(min_value=0, max_value=10),
+    )
+    @settings(max_examples=15, deadline=None)
+    def test_color_cycles_with_index(self, method, index):
+        from pyflexplot.core import _normalize_overlay, _OVERLAY_COLOR_CYCLE
+        result = _normalize_overlay([{"method": method}] * (index + 1))
+        # The (index)-th entry's color should be the cycle at that index.
+        expected_color = _OVERLAY_COLOR_CYCLE[index % len(_OVERLAY_COLOR_CYCLE)]
+        assert result[index]["color"] == expected_color
+
+    @given(
+        method=st.text(
+            min_size=1, max_size=20,
+            alphabet=st.characters(
+                whitelist_categories=("Lu", "Ll", "Nd"),
+                whitelist_characters="_-",
+            ),
+        ).filter(lambda s: s not in {
+            "lm", "loess", "lowess", "glm", "rlm", "ols", "wls", "gls", "mavg"
+        }),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_unknown_method_in_dict_rejected(self, method):
+        from pyflexplot.core import _normalize_overlay
+        with pytest.raises(ValueError, match="not a recognized method"):
+            _normalize_overlay([{"method": method}])
+
+    @given(
+        bad_value=st.one_of(
+            st.integers(),
+            st.floats(allow_nan=False, allow_infinity=False),
+            st.booleans(),
+            st.none(),
+            st.lists(st.integers(), max_size=3),
+        ),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_non_string_non_dict_entries_rejected(self, bad_value):
+        from pyflexplot.core import _normalize_overlay
+        with pytest.raises(ValueError, match="must be a str or dict"):
+            _normalize_overlay([bad_value])
+
+    def test_dict_without_method_rejected(self):
+        from pyflexplot.core import _normalize_overlay
+        with pytest.raises(ValueError, match="missing required key 'method'"):
+            _normalize_overlay([{"color": "#ff0000"}])
+
+    @given(
+        n_entries=st.integers(min_value=1, max_value=5),
+    )
+    @settings(max_examples=10, deadline=None)
+    def test_mixed_string_and_dict_entries_normalize(self, n_entries):
+        """A list of mixed strings and dicts normalizes correctly."""
+        from pyflexplot.core import _normalize_overlay
+        entries = []
+        for i in range(n_entries):
+            if i % 2 == 0:
+                entries.append("loess")
+            else:
+                entries.append({"method": "lm", "label": f"L{i}"})
+        result = _normalize_overlay(entries)
+        assert len(result) == n_entries
+        for i, spec in enumerate(result):
+            assert spec["method"] in {"lm", "loess"}
+            if i % 2 == 1:
+                assert spec["label"] == f"L{i}"

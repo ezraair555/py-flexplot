@@ -1,10 +1,22 @@
 # py-flexplot
 
-A Python port of Dustin Fife's [`flexplot`](https://github.com/dustinfife/flexplot) and related R packages (`fifer`, `flexplavaan`, etc.).
+A **partial** Python port of Dustin Fife's [`flexplot`](https://github.com/dustinfife/flexplot) and related R packages (`fifer`, `flexplavaan`, `ebbr`, `bluepill`).
 
 `py-flexplot` provides intelligent data visualization using a formula-based syntax, similar to the original R implementation but powered by `plotnine` for a consistent "grammar of graphics" look and feel in Python.
 
 ![Titanic Example](docs/assets/titanic/plot2_sex.png)
+
+## What's covered (and what isn't)
+
+This is **not** a 1:1 port. The Python port covers the parts of R's `flexplot` and friends that translate cleanly onto `plotnine` + `statsmodels`; some R-only features are deferred or unsupported. See [`docs/api/coverage.md`](docs/api/coverage.md) for the full coverage matrix vs the R packages. Highlights:
+
+- ✅ `flexplot()` core dispatch + `bins` / `breaks` / `labels` (auto-bin), `spread`, `overlay`, `uncertainty` (CI / prediction / bootstrap), `ghost_line` / `ghost_reference`, `plot.string`, `plot_type` override, `sample`, `return_data`.
+- ✅ `model_comparison()` (AIC / BIC / R² / adj.R² / **Bayes factor**), `estimates()` (structured effect-size reporter), `compare_fits()` (with `return_preds` / `pred_type`).
+- ✅ `visualize()` with `plot='model' | 'residuals' | 'all'`.
+- ✅ `diagnose()` (missingness, Cook's D, Ramsey RESET, Breusch-Pagan).
+- ⚠️ R-style interaction syntax (`y ~ x*z`) is parsed but the fit remains additive — pass `interaction_model=True` (v0.7.0+) for non-parallel slopes per color group.
+- ✅ `randomForest` (and any sklearn estimator with `.predict()`) — use `pyflexplot.ml.RFAdapter` to wrap a fitted estimator and pass it to `compare_fits()`. See [`docs/api/ml.md`](docs/api/ml.md).
+- ⚠️ Mixed-effects models are now available in `flexplot()` via `method="mixedlm"|"lmer"|"glmer"` with `random_effects=...` (v0.8.2+). This is a practical Python bridge, not a full `lme4` clone. For stricter `lme4` parity, use `pymer4`/`rpy2`.
 
 ## Included R Packages
 - **flexplot**: Intelligent multivariate graphics via formulas.
@@ -12,6 +24,8 @@ A Python port of Dustin Fife's [`flexplot`](https://github.com/dustinfife/flexpl
 - **flexplavaan**: Visualizing latent variable models (SEM).
 - **flex_nn**: Neural-network visualization wrappers. **torch** is the default backend; **Keras 3** is supported transparently via the same `NeuralNetFit` class. Drop any `torch.nn.Module` or `keras.Model` (Sequential, Functional, or subclassed) into `compare_fits()` alongside statsmodels fits.
 - **bluepill**: Synthetic mixed-model data generator. `mixed_model(...)` produces clustered data with fixed and random effects, interactions, and polynomial terms.
+- **descriptives** (Python-native, port of `fifer::meansplot()`): `meansplot(formula, data, error=...)` for mean + error-bar visualizations across categorical or ordinal groups. `scatter3D(formula, data, type=...)` for 2D projection of `y ~ x + z`.
+- **ml** (Python-native, no R analog): Adapters so scikit-learn estimators (`RandomForestRegressor`, `RandomForestClassifier`, and any estimator with `.predict()`) can be used with `compare_fits()`. Optional — requires `pip install scikit-learn`.
 
 ## Installation
 
@@ -94,9 +108,40 @@ walk-through of the new functionality.
 - **Formula Syntax**: Uses `y ~ x + z | a` to automatically determine plot types.
 - **Model Visualization**: Directly `visualize(model)` to see predicted vs actuals.
 - **Model Comparison**: Use `compare_fits(formula, data, m1, m2)` to see performance side-by-side.
+- **Uncertainty Layers (v0.4.0+)**: First-class confidence / prediction / bootstrap bands around every fitted line via `uncertainty=`, `level=`, and `bands=` on `flexplot()`. Pick the band type that fits your modeling claim.
+- **Model-Compare Overlay (v0.5.0+)**: Overlay multiple smoothers (`lm`, `loess`, `rlm`, etc.) on the same chart via `overlay=...` so the user can *see* which fit the data prefers.
+- **Auto Data-Quality Diagnostics (v0.6.0+)**: `diagnose("y ~ x + z", data)` runs missingness / Cook's distance / Ramsey RESET / Breusch-Pagan and prints a one-paragraph summary of why your fit might be off.
+- **R-Style Interaction Syntax (v0.6.2+)**: Formulas accept `y ~ x*z` and `y ~ x:z` (parsed, validated, with a `UserWarning` noting that the v0.6.x fit is additive; v0.7.0 will add `interaction_model=True`).
 - **Neural-Network Integration (torch + Keras 3)**: Wrap a fitted `torch.nn.Module` or `keras.Model` with `NeuralNetFit` to drop it into `compare_fits` next to a statsmodels fit. Keras 3 models are evaluated with `training=False` so Dropout/BatchNorm behave deterministically; torch models use `torch.no_grad()`. `permutation_importance()` provides column-shuffling variable ranking that works against either backend.
 - **Synthetic Data Generation**: `mixed_model(...)` produces clustered data with fixed + random effects for demos, teaching, and power analyses. `estimate_sd(mean, min, max)` recovers an SD from a known range.
 - **Biostats Utilities**: Ported functions from `fifer` for common statistical tasks.
+
+## Typical workflow (v0.6.x)
+
+```python
+import pandas as pd
+from pyflexplot import flexplot, diagnose
+
+df = pd.read_csv("data.csv")
+
+# 1. Diagnose the model fit before plotting.
+diag = diagnose("y ~ x + z", data=df)
+
+# 2. Plot with uncertainty bands and overlay competing smoothers.
+p = flexplot(
+    "y ~ x + z", data=df,
+    uncertainty="ci",        # or "prediction" / "bootstrap"
+    level=0.95,
+    bands=[0.5, 0.8, 0.95],  # nested ribbons (Tufte-style)
+    overlay=[
+        {"method": "loess", "label": "LOESS smoother"},
+        {"method": "rlm",   "label": "Robust regression"},
+    ],
+)
+p.draw()
+```
+
+See `docs/examples/diagnostics_workflow.md` for a longer walk-through.
 
 ## Continuous Integration
 
@@ -117,6 +162,48 @@ each runs in its own clean environment:
 All workflows upload coverage via `pytest-cov`.
 
 ## Changelog
+
+`README.md` now includes a concise release log. The canonical full history
+remains in [`CHANGELOG.md`](CHANGELOG.md).
+
+### 0.8.2 (2026-08-31)
+- Added mixed-effects support in `flexplot()`:
+  - `method="mixedlm"` / `method="lmer"` for linear mixed models via `statsmodels.MixedLM`
+  - `method="glmer"` for binomial mixed models via `statsmodels.BinomialBayesMixedGLM`
+  - `random_effects=` supports a group column name or compact forms like `(1|group)` and `(1 + x|group)`.
+- Added mixed-model tests in `tests/test_mixed_models.py`.
+- Updated parity docs to reflect that mixed models are now available with explicit `lme4`-parity caveats.
+
+### 0.8.1 (2026-08-31)
+- Added formula-function transformations in `flexplot()` (`log(x)`, `sqrt(x)`, `exp(x)`, `poly(x, 2)`, `I(...)`) with a safe whitelisted evaluator.
+- Added multivariate numeric slotting parity for `y ~ x1 + x2` / `y ~ x1 + x2 | g` by auto-binning slot-2+/given numeric variables into `<var>_binned`.
+- Added R-style defaults/parity behavior: categorical-vs-numeric alpha defaults, categorical jitter semantics, and low-cardinality numeric auto-categorization (`<5` unique).
+- Added explicit R-style `compare_fits()` compatibility args (`report_se`, `re`, `num_points`, `clusters`) with transparent no-op warning.
+- Added `third_eye()` placeholder endpoint (exported in package API) that raises `NotImplementedError` with guidance.
+- Added/updated parity tests; test suite status at release: `509 passed, 4 skipped`.
+
+### 0.8.0 (2026-08-31)
+- Implemented the major parity batch from the v0.8.0 review:
+  - Non-nested `model_comparison()` support and `pred_difference`.
+  - `estimates()` factor-level tables + mean differences.
+  - `added_plot()` R semantics alignment.
+  - R spread tokens/defaults, `ghost_line` panel semantics, and standalone accessors.
+- Included release cleanup (`.gitignore` hardening and parity script addition).
+
+### 0.6.2 (2026-08-30)
+- **R-style interaction syntax accepted by the formula parser.** `y ~ x*z` and `y ~ x:z` no longer raise "missing column"; the parser expands `*` to `+` + `:` for column lookup and preserves interaction terms in `all_x`. `flexplot()` emits a `UserWarning` reminding the user that v0.6.x fits remain additive; v0.7.0 will add `interaction_model=True`. 6 new tests in `tests/test_core.py`.
+
+### 0.6.1 (2026-08-30)
+- **Fixed dead binomial branch in `flexplot()`.** `pd.api.types.is_numeric_dtype([0, 1])` returns True, so int/float binary y was always routed to the LM/loess branch and the binomial GLM branch was unreachable. Added a binary pre-check that detects unique values ⊆ {0, 1} *before* the numeric-dtype dispatch. Numeric `[0, 1]` y now draws a sigmoid curve (was a straight LM line); string `["yes", "no"]` and multi-level numeric `[0, 1, 2]` behavior unchanged. 3 new tests + 1 updated regression test.
+
+### 0.6.0 (2026-08-30)
+- **`diagnose(formula, data)` — auto data-quality diagnostics.** Runs missingness (per-column counts and pattern heuristic), Cook's distance for outliers (default `4/n`), Ramsey RESET for functional form, and Breusch-Pagan for heteroscedasticity. Returns a structured dict; pass `verbose=True` for a one-paragraph terminal/email/log summary. New module `pyflexplot.quality`. 19 new tests.
+
+### 0.5.0 (2026-08-30)
+- **`overlay` parameter on `flexplot()`.** Overlay multiple smoothers (`lm`, `loess`, `rlm`, `glm`, ...) on the same axes with per-smoother uncertainty bands. Each entry takes a `color` (cycles through a 5-color palette) and optional `label` / `uncertainty` / `level`. When any entry has a `label`, a manual color scale adds a legend. The binomial branch restricts overlay to `method="glm"`; other methods raise. 14 new tests.
+
+### 0.4.0 (2026-08-30)
+- **`uncertainty` parameter on `flexplot()`.** First-class confidence / prediction / bootstrap bands around every fitted line. New module `pyflexplot.uncertainty` exposes `validate_uncertainty_params`, `compute_bootstrap_ci`, `compute_prediction_band`, `format_band`.`..- 35 new tests, full suite 199 passed / 1 skipped (keras not installed), no regressions.
 
 ### 0.3.0 (2026-08-28)
 - **`visualize()` now accepts `NeuralNetFit` wrappers** (DESIGN-7 from the v0.2.2 review). The duck-type dispatch avoids importing `flex_nn` at module load time, so the core module stays cheap when neural-net support isn't needed. The output mirrors the statsmodels `visualize()`: predicted-vs-actual line on top of a scatter. 7 new tests in `tests/test_design_followups.py::TestVisualizeNeuralNetFit`.
