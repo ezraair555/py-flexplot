@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from plotnine import geom_line, geom_ribbon, geom_smooth
+from plotnine import geom_smooth
 
 from pyflexplot import flexplot
 

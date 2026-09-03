@@ -4,7 +4,7 @@ import warnings
 
 import pandas as pd
 import numpy as np
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union, cast
 from plotnine import (
     ggplot,
     aes,
@@ -29,9 +29,7 @@ from plotnine import (
     labs,
     theme_bw,
     theme,
-    coord_flip,
     element_blank,
-    element_text,
 )
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
@@ -39,10 +37,8 @@ from statsmodels.regression.linear_model import OLS
 from statsmodels.nonparametric.smoothers_lowess import lowess
 
 from .uncertainty import (
-    VALID_UNCERTAINTY,
     validate_uncertainty_params,
     compute_bootstrap_ci,
-    compute_prediction_band,
 )
 
 
@@ -187,7 +183,7 @@ def _validate_data_for_plot(
             raise ValueError(
                 f"Column {y!r} must be numeric for formula {formula!r}, "
                 f"got dtype {data[y].dtype}"
-            )
+            ) from None
 
     if require_numeric_x and x is not None and not pd.api.types.is_numeric_dtype(data[x]):
         raise ValueError(
@@ -529,7 +525,7 @@ def _plot_related(
     diff_col: str,
     spread: Optional[str],
     plot_type: Optional[str],
-    jitter: Union[bool, tuple],
+    jitter: Union[bool, tuple, List[float], None],
     alpha: float,
     raw_data: bool,
 ):
@@ -797,7 +793,7 @@ _FORMULA_FUNCS = {
 }
 
 
-def _apply_formula_function(func_name: str, inner_expr: str, var_name: str,
+def _apply_formula_function(func_name: str, inner_expr: str, var_name: Optional[str],
                             data: pd.DataFrame, depth: int = 0):
     """Apply a whitelisted function to a single inner expression.
 
@@ -843,7 +839,7 @@ def _apply_formula_function(func_name: str, inner_expr: str, var_name: str,
         except (ValueError, TypeError):
             raise ValueError(
                 f"poly() requires an integer degree; got {parts[1]!r}."
-            )
+            ) from None
         if degree < 1:
             raise ValueError(
                 f"poly() requires degree >= 1; got {degree}."
@@ -918,7 +914,7 @@ def _apply_formula_functions(formula: str, data: pd.DataFrame):
 
     transformed = []  # list of (original_term, func_name, inner_var)
     new_data = data.copy()
-    new_x_parts = []
+    new_x_parts: List[str] = []
 
     def _process_term(term: str, parts: List[str]) -> None:
         """Apply formula-function transformation to one additive term.
@@ -977,7 +973,7 @@ def _apply_formula_functions(formula: str, data: pd.DataFrame):
 
     if given_part is not None:
         given_terms = _split_formula_terms(given_part, "+")
-        new_given_parts = []
+        new_given_parts: List[str] = []
         for term in given_terms:
             _process_term(term, new_given_parts)
         new_formula = f"{new_main} | {' + '.join(new_given_parts)}"
@@ -1132,8 +1128,6 @@ def _slot_bin_numeric_predictors(
     if variables.get("intercept_only", False):
         return data.copy(), variables.get("color"), variables.get("given", []), 0
 
-    y = variables["y"]
-    x = variables["x"]
     color = variables.get("color")
     given = variables.get("given", [])
     all_x = variables.get("all_x", [])  # includes any +color tokens
@@ -1615,7 +1609,7 @@ def flexplot(
             if binned_given:
                 # Replace ``given`` with the binned variants while keeping
                 # the same length / ordering as the original list.
-                new_given = []
+                new_given: List[Optional[str]] = []
                 for orig in variables["given"]:
                     if orig is None:
                         new_given.append(None)
@@ -1849,7 +1843,7 @@ def flexplot(
             raise ValueError(
                 f"Binomial smoothing requires a numeric binary 0/1 outcome; "
                 f"{y!r} could not be converted to numeric"
-            )
+            ) from None
         if len(unique_y) != 2 or not set(unique_y).issubset({0.0, 1.0}):
             raise ValueError(
                 f"Binomial smoothing requires a binary 0/1 outcome; {y!r} has "
@@ -1982,7 +1976,7 @@ def flexplot(
                 # Ghost lines are only defined for numeric x fits.
                 if not isinstance(ghost_line, str):
                     raise TypeError("ghost_line must be a string.")
-            ref_df = plot_input_df
+            ref_df: Optional[pd.DataFrame] = plot_input_df
             if ghost_reference is not None:
                 if isinstance(ghost_reference, pd.DataFrame):
                     # DataFrame overlay path (legacy) is handled AFTER this
@@ -2184,7 +2178,7 @@ def _add_numeric_smooth(
             kwargs = {"method": "loess" if use_loess else "lm", "level": lvl, "alpha": 0.15}
             if line_color:
                 kwargs["color"] = line_color
-            p += geom_smooth(**kwargs)
+            p += cast(Any, geom_smooth)(**kwargs)
         return p
 
     # --- Single band ---
@@ -2192,7 +2186,7 @@ def _add_numeric_smooth(
         kwargs = {"method": "loess" if use_loess else "lm", "level": level}
         if line_color:
             kwargs["color"] = line_color
-        p += geom_smooth(**kwargs)
+        p += cast(Any, geom_smooth)(**kwargs)
         return p
 
     if uncertainty == "prediction":
@@ -2554,9 +2548,6 @@ def _add_parametric_smooth(
         levels = [level]
 
     # Outermost band draws the line; inner bands draw only the ribbon.
-    outermost_lvl = levels[-1]
-    z_outer = float(_scipy_stats.norm.ppf(0.5 + outermost_lvl / 2))
-
     # Build a single combined ribbon dataframe with all band columns so we
     # can layer them on the same plot. Outermost band = widest.
     ribbon_df = pd.DataFrame({x: x_eval, y: yhat_eval})
@@ -2699,7 +2690,7 @@ def _add_interaction_smooth(
         raise RuntimeError(
             f"interaction_model=True requires a valid OLS fit with the "
             f"interaction term; got: {exc}"
-        )
+        ) from exc
 
     # Predict on a per-color grid.
     x_min = float(np.nanmin(x_arr))
@@ -2717,7 +2708,7 @@ def _add_interaction_smooth(
     # Compute CI bands. Supports a single level (level=) or nested bands
     # (bands=[...]). Returns a dict {level_value: (lower_array, upper_array)}
     # or None if CI computation failed / is suppressed.
-    band_arrays = None
+    band_arrays: Optional[dict[float, tuple[Any, Any]]] = None
     if uncertainty in {"ci", "prediction"}:
         levels_to_compute = sorted(set(bands)) if bands is not None else [level]
         band_arrays = {}
@@ -2804,7 +2795,7 @@ def _add_binomial_smooth(
             }
             if line_color:
                 kwargs["color"] = line_color
-            p += geom_smooth(**kwargs)
+            p += cast(Any, geom_smooth)(**kwargs)
         return p
 
     kwargs = {
@@ -2814,7 +2805,7 @@ def _add_binomial_smooth(
     }
     if line_color:
         kwargs["color"] = line_color
-    p += geom_smooth(**kwargs)
+    p += cast(Any, geom_smooth)(**kwargs)
     return p
 
 
@@ -2844,7 +2835,7 @@ def _add_overlay_numeric(p, data, x, y, overlay_specs):
         for k in ("span", "formula", "method_args", "n"):
             if k in spec:
                 kwargs[k] = spec[k]
-        p += geom_smooth(**kwargs)
+        p += cast(Any, geom_smooth)(**kwargs)
         if has_labels:
             label_colors[label] = color
 
@@ -2876,7 +2867,7 @@ def _add_overlay_binomial(p, data, x, y, overlay_specs):
             "level": spec["level"],
             "color": spec["color"],
         }
-        p += geom_smooth(**kwargs)
+        p += cast(Any, geom_smooth)(**kwargs)
         label_colors[spec.get("label", "glm")] = spec["color"]
     if label_colors:
         p += scale_color_manual(name="Method", values=label_colors)
@@ -3368,7 +3359,6 @@ def added_plot(
         lm_variables = parse_flexplot_formula(
             lm_formula if "~" in lm_formula else f"{y_var} ~ {lm_formula}"
         )
-        lm_rhs = [v for v in lm_variables["all_x"]]
         if lm_variables["y"] != y_var:
             raise ValueError(
                 f"lm_formula {lm_formula!r} must share the outcome {y_var!r}; "

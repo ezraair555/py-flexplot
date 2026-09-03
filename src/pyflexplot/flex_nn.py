@@ -32,7 +32,7 @@ support is best-effort and tested only when keras is installed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -295,7 +295,6 @@ class NeuralNetFit:
         case, after setting the model's ``training`` attribute to False if
         available, and restoring the original value on exit.
         """
-        import keras as _keras
 
         # Save and restore the model's training flag if it's mutable so we
         # don't permanently side-effect a caller-owned object.
@@ -447,7 +446,7 @@ def permutation_importance(
     scorer: Callable[[np.ndarray, np.ndarray], float]
     direction: Optional[bool]  # True = higher is better
     if metric is None:
-        scorer = _default_metric(fit.model, fit.backend)
+        scorer = _default_metric(fit.model, cast(str, fit.backend))
         # MSE / wrong-rate: lower is better.
         direction = False
     elif callable(metric):

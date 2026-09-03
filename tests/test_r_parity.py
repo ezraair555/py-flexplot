@@ -123,7 +123,7 @@ def _r_coefficients(r_data: dict, formula: str, family: str | None = None):
         Mapping of term name to coefficient value.
     """
     from rpy2 import robjects
-    from rpy2.robjects import pandas2ri, Formula
+    from rpy2.robjects import pandas2ri
 
     pandas2ri.activate()
 

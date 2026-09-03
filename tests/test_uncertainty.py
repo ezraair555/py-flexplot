@@ -6,7 +6,6 @@ import pytest
 from scipy import stats as scipy_stats
 
 from pyflexplot.uncertainty import (
-    VALID_UNCERTAINTY,
     compute_bootstrap_ci,
     compute_prediction_band,
     format_band_label,

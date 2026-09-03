@@ -8,12 +8,11 @@ branch (geom_jitter + summary). It mirrors R-flexplot's ``spread`` arg:
   - "iqr": Q1-Q3 IQR
   - "no": no summary layer at all
 """
-import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
-from plotnine import ggplot, geom_pointrange, geom_jitter
+from plotnine import ggplot
 
 from pyflexplot import flexplot
 from pyflexplot.core import _VALID_SPREAD, _make_spread_fn

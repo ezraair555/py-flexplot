@@ -31,7 +31,7 @@ code does not deliver (e.g. multi-class handling) is implemented here.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -245,7 +245,7 @@ def mixed_model(
     #   * remaining predictor slots -> raw predictor values, rescaled/binned.
     #   * cluster column -> cluster id, repeated according to ``sizes``.
     out = pd.DataFrame(index=range(total_n))
-    out[cluster_var] = np.repeat(cluster_levels, sizes)
+    out[cluster_var] = np.repeat(np.asarray(cluster_levels, dtype=object), sizes)
 
     first_spec = vars[predictor_names[0]]
     out[predictor_names[0]] = _apply_spec(y_std, first_spec)

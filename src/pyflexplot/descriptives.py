@@ -20,11 +20,9 @@ stats surface doesn't bloat the formula-dispatch logic in ``flexplot()``.
 
 from __future__ import annotations
 
-from typing import Optional
 
 import numpy as np
 import pandas as pd
-import plotnine
 from plotnine import (
     aes,
     geom_errorbar,

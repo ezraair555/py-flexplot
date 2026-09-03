@@ -10,11 +10,9 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
-from plotnine import ggplot, geom_line, geom_ribbon
+from plotnine import ggplot
 
 from pyflexplot import flexplot
-from pyflexplot.core import _add_interaction_smooth
 
 
 def _interaction_df(n=120, seed=0):

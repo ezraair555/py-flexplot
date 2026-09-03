@@ -1,9 +1,8 @@
 import pandas as pd
 import numpy as np
-import statsmodels.api as sm
 import statsmodels.formula.api as smf
 from scipy import stats
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 
 def _check_statsmodels_attrs(model, attrs):
@@ -206,7 +205,7 @@ def eta_squared(model, level: float = 0.95, typ: int = 3):
     try:
         from statsmodels.stats.anova import anova_lm
         anova_tbl = anova_lm(model, typ=typ)
-    except Exception as exc:
+    except Exception:
         # statsmodels raises if the model wasn't fit with `data=` and we
         # can't recover the term-level SS. Fall back to the legacy
         # single-row computation rather than crashing.
@@ -627,7 +626,6 @@ def estimates(model, mc: bool = True):
             for base in factors:
                 if base not in frame.columns:
                     continue
-                ref_level = levels_by_base[base][0]
                 # 1) Per-level fitted means via get_prediction grid.
                 level_means = {}
                 for level in levels_by_base[base]:

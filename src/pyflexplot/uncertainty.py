@@ -24,7 +24,6 @@ from __future__ import annotations
 from typing import Callable, Optional, Tuple
 
 import numpy as np
-import pandas as pd
 from scipy import stats as scipy_stats
 
 

@@ -6,7 +6,6 @@ Targets:
 """
 import pytest
 import pandas as pd
-import numpy as np
 
 from pyflexplot.core import parse_flexplot_formula, _validate_data_for_plot
 

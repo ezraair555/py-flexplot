@@ -11,12 +11,6 @@ import pandas as pd
 import pytest
 from plotnine import (
     ggplot,
-    geom_point,
-    geom_line,
-    geom_boxplot,
-    geom_bar,
-    geom_hline,
-    geom_jitter,
 )
 
 from pyflexplot import flexplot

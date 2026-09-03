@@ -6,7 +6,6 @@ from scipy.optimize import minimize
 from scipy.special import betaln, gammaln
 from scipy.stats import beta as beta_dist
 from dataclasses import dataclass
-from typing import Iterable, Optional, Tuple, List
 
 
 @dataclass

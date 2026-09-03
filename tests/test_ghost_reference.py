@@ -8,7 +8,7 @@ axes. Two patterns detected automatically by column shape:
 import numpy as np
 import pandas as pd
 import pytest
-from plotnine import ggplot, geom_point, geom_line
+from plotnine import ggplot
 
 from pyflexplot import flexplot
 

@@ -3,8 +3,6 @@
 Thin wrapper around sklearn estimators so they can be used with
 compare_fits() and the rest of the py-flexplot visualization surface.
 """
-import sys
-import importlib
 
 import numpy as np
 import pandas as pd
@@ -166,7 +164,6 @@ def test_rf_adapter_works_with_compare_fits(regression_df):
 
 def test_rf_adapter_classifier(classification_df):
     """An RFAdapter wrapping a classifier still has a working .predict()."""
-    from sklearn.ensemble import RandomForestClassifier
     X = classification_df[["x1", "x2"]]
     y = classification_df["y"]
     rf = RandomForestClassifier(n_estimators=10, random_state=0).fit(X, y)

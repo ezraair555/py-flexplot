@@ -15,7 +15,7 @@ themselves if they want.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -288,7 +288,10 @@ def diagnose(
         return out
 
     y = _safe_numeric(complete[y_name])
-    X = np.column_stack([_safe_numeric(complete[c]) for c in numeric_x_names])
+    x_arrays = [_safe_numeric(complete[c]) for c in numeric_x_names]
+    if y is None or any(arr is None for arr in x_arrays):
+        raise ValueError("Complete numeric cases could not be converted to arrays.")
+    X = np.column_stack([cast(np.ndarray, arr) for arr in x_arrays])
 
     # Re-fit on the complete-case subset to get residuals/fitted.
     import statsmodels.api as sm

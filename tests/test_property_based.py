@@ -12,10 +12,8 @@ that hand-written tests miss.  Two surfaces are covered:
 
 from __future__ import annotations
 
-import re
 
 import numpy as np
-import pandas as pd
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 

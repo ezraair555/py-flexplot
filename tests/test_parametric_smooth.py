@@ -12,10 +12,6 @@ import pandas as pd
 import pytest
 from plotnine import (
     ggplot,
-    geom_point,
-    geom_line,
-    geom_ribbon,
-    geom_smooth,
 )
 
 from pyflexplot import flexplot
@@ -124,7 +120,6 @@ def test_polynomial_recovery_nonlinear():
     df = pd.DataFrame({"x": x, "y": y})
 
     from statsmodels.regression.linear_model import OLS
-    import statsmodels.api as sm
     X = np.column_stack([np.ones_like(x), x, x ** 2, x ** 3])
     model = OLS(y, X).fit()
     pred = model.predict(np.column_stack([np.ones_like(x), x, x ** 2, x ** 3]))

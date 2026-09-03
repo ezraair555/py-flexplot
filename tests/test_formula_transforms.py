@@ -16,14 +16,13 @@ This file exercises:
 - Round-trip behaviour (inner variable name preserved, but transformed values
   stored back in the same column).
 """
-import ast
 import numpy as np
 import pandas as pd
 import pytest
 from plotnine import ggplot
 
 from pyflexplot import flexplot
-from pyflexplot.core import _apply_formula_functions, _apply_formula_function
+from pyflexplot.core import _apply_formula_functions
 
 
 # ---------------------------------------------------------------------------

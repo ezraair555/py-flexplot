@@ -6,9 +6,6 @@ just that the functions return.  They run on top of the structural tests
 in tests/test_bluepill.py.
 """
 
-import numpy as np
-import pandas as pd
-import pytest
 
 from pyflexplot import mixed_model
 

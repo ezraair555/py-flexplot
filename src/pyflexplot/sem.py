@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from typing import List, Optional, Union
 from plotnine import (
     aes,
     element_text,
@@ -10,7 +9,6 @@ from plotnine import (
     geom_tile,
     ggplot,
     labs,
-    scale_fill_gradient,
     scale_fill_gradient2,
     theme,
     theme_bw,
@@ -24,7 +22,7 @@ def hopper_plot(model, **kwargs):
     Shows the discrepancy between observed and model-implied correlations.
     """
     try:
-        from semopy import Model
+        import semopy  # noqa: F401  # availability check; model is caller-owned
     except ImportError as exc:
         raise ImportError("semopy not installed. Please install it to use SEM visualization.") from exc
 

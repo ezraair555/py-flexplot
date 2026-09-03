@@ -10,7 +10,6 @@ import pytest
 import statsmodels.formula.api as smf
 
 from pyflexplot import eta_squared
-from pyflexplot.stats import eta_squared as eta_squared_internal
 
 
 # ---------------------------------------------------------------------------
