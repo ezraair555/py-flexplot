@@ -83,6 +83,37 @@ def test_ghost_line_dict_reference_selects_panel():
     assert isinstance(p, ggplot)
 
 
+def test_ghost_reference_dict_defaults_ghost_line_gray():
+    """Passing ghost_reference dict without ghost_line automatically adds the ghost fit line."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({
+        "fare": rng.normal(size=100),
+        "age": rng.normal(size=100),
+        "pclass": rng.choice([1, 2, 3], size=100),
+    })
+    p = flexplot("fare ~ age | pclass", data=df, ghost_reference={"pclass": 1})
+    assert isinstance(p, ggplot)
+    line_layers = [l for l in p.layers if l.geom.__class__.__name__ == "geom_line"]
+    assert len(line_layers) >= 1
+
+
+def test_ghost_line_with_nans_in_data():
+    """Verify ghost line fits properly even when data contains NaNs in x or y."""
+    rng = np.random.default_rng(0)
+    age = rng.normal(size=100)
+    fare = rng.normal(size=100)
+    age[0:15] = np.nan  # Introduce missing values in predictor
+    df = pd.DataFrame({
+        "fare": fare,
+        "age": age,
+        "pclass": rng.choice([1, 2, 3], size=100),
+    })
+    p = flexplot("fare ~ age | pclass", data=df, ghost_line="dashed", ghost_reference={"pclass": 1})
+    assert isinstance(p, ggplot)
+    line_layers = [l for l in p.layers if l.geom.__class__.__name__ == "geom_line"]
+    assert len(line_layers) >= 1
+
+
 def test_ghost_reference_missing_x_column_raises():
     """ghost_reference without the x column raises ValueError."""
     df = _sample_df()

@@ -1942,21 +1942,39 @@ def flexplot(
     # mark the slope=1 reference for prediction-vs-observed plots.
     # Both are drawn as geom_hline (horizontal), so they're 1D references
     # at y=0. For diagonal references (slope=1), future work.
-    # --- ghost.line (v0.8.0, R-parity) ---
+    # --- ghost.line & ghost.reference (v0.8.0, R-parity) ---
     # R semantics: ghost.line is the COLOR of a line fit on a reference
     # panel that is repeated into every other panel (cross-panel
-    # comparison). Python-only extensions kept: "slope1" (diagonal abline).
-    # When the formula has NO `given` facets, the legacy Python behavior
-    # applies: "red"/"dashed" -> y=0 hline; "slope1" -> y=x abline.
+    # comparison). If ghost_reference is provided without an explicit
+    # ghost_line, ghost_line defaults to "gray".
+    has_grouping = len(given) >= 1 or color is not None
+
+    if ghost_reference is not None and not isinstance(ghost_reference, (dict, pd.DataFrame)):
+        raise TypeError(
+            f"ghost_reference must be None, a dict ({{given_var: level}}) for "
+            f"panel reference selection, or a DataFrame for overlay; got "
+            f"{type(ghost_reference).__name__}."
+        )
+
+    if isinstance(ghost_reference, dict) and not has_grouping:
+        raise TypeError(
+            "ghost_reference dict requires a `| given` facet in the formula."
+        )
+
+    if ghost_reference is not None and not isinstance(ghost_reference, pd.DataFrame) and ghost_line is None:
+        ghost_line = "gray"
+    if ghost_line is True:
+        ghost_line = "gray"
+
     if ghost_line is not None:
         if not isinstance(ghost_line, str):
             raise TypeError(
                 f"ghost_line must be a color string, 'slope1', or None; "
                 f"got {type(ghost_line).__name__}."
             )
-        if len(given) >= 1:
+        if has_grouping:
             # R-parity path: fit y ~ x on the reference subset and repeat
-            # the predicted line into every panel, drawn in ghost_line's
+            # the predicted line into every panel/group, drawn in ghost_line's
             # color. Reference selection via ghost_reference dict
             # ({given_var: level}) or the first level of the first given
             # variable when absent.
@@ -1977,7 +1995,7 @@ def flexplot(
                                 f"ghost_reference key {var!r} is not a "
                                 f"data column."
                             )
-                        mask = plot_input_df[var] == val
+                        mask = (plot_input_df[var] == val) | (plot_input_df[var].astype(str) == str(val))
                         if not mask.any():
                             # Nearest-match fallback for numeric refs.
                             if pd.api.types.is_numeric_dtype(plot_input_df[var]):
@@ -1996,35 +2014,39 @@ def flexplot(
             if ref_df is not None and len(ref_df) > 1 and pd.api.types.is_numeric_dtype(ref_df[x]):
                 gx = ref_df[x].to_numpy(dtype=float)
                 gy = ref_df[y].to_numpy(dtype=float)
-                if np.isfinite(gx).all() and np.isfinite(gy).all():
-                    _X = np.column_stack([np.ones_like(gx), gx])
-                    _m = OLS(gy, _X).fit()
-                    _x_eval = np.linspace(np.nanmin(gx), np.nanmax(gx), num=200)
+                valid = np.isfinite(gx) & np.isfinite(gy)
+                gx_valid = gx[valid]
+                gy_valid = gy[valid]
+                if len(gx_valid) > 1:
+                    _X = np.column_stack([np.ones_like(gx_valid), gx_valid])
+                    _m = OLS(gy_valid, _X).fit()
+                    _x_eval = np.linspace(np.nanmin(gx_valid), np.nanmax(gx_valid), num=200)
                     _y_eval = _m.predict(np.column_stack([np.ones_like(_x_eval), _x_eval]))
                     ghost_df = pd.DataFrame({x: _x_eval, y: _y_eval})
+                    ghost_color = "black" if ghost_line == "dashed" else ghost_line
                     p += geom_line(
-                        aes(y=y),
+                        aes(x=x, y=y),
                         data=ghost_df,
-                        color=ghost_line,
+                        color=ghost_color,
                         linetype="dashed",
                         inherit_aes=False,
                     )
         else:
-            # No facets: legacy y=0 / slope=1 references.
-            if ghost_line not in {"red", "dashed", "slope1"}:
+            # No grouping/facets: reference line at y=0 or diagonal slope1
+            valid_unfaceted = {"red", "dashed", "slope1", "gray", "lightgray", "black", "blue", "darkgreen"}
+            if ghost_line not in valid_unfaceted:
                 raise ValueError(
-                    f"Without `| given` facets, ghost_line must be 'red', "
-                    f"'dashed', 'slope1', or None; got {ghost_line!r}. "
+                    f"Without `| given` facets or color predictors, ghost_line must be 'gray', "
+                    f"'red', 'dashed', 'slope1', or None; got {ghost_line!r}. "
                     f"Panel-repetition (R parity) requires a facet in the "
                     f"formula."
                 )
-            if ghost_line == "red":
-                p += geom_hline(yintercept=0, color="red")
-            elif ghost_line == "dashed":
-                p += geom_hline(yintercept=0, color="black", linetype="dashed")
-            elif ghost_line == "slope1":
+            if ghost_line == "slope1":
                 from plotnine import geom_abline
                 p += geom_abline(intercept=0, slope=1, color="black", linetype="dashed")
+            else:
+                ghost_color = "black" if ghost_line == "dashed" else ghost_line
+                p += geom_hline(yintercept=0, color=ghost_color, linetype="dashed" if ghost_line == "dashed" else "solid")
 
     # --- Optional ghost.reference overlay (v0.6.6+) ---
     # R-flexplot accepts ghost.reference as a DataFrame to overlay on the
@@ -2042,7 +2064,7 @@ def flexplot(
         if isinstance(ghost_reference, dict):
             # Dict = panel-reference selector, consumed by the ghost.line
             # block above. Here we only validate the facet requirement.
-            if len(given) == 0:
+            if not has_grouping:
                 raise TypeError(
                     "ghost_reference dict requires a `| given` facet in the "
                     "formula (it selects the reference panel)."
@@ -2066,7 +2088,7 @@ def flexplot(
         elif "pred" in ghost_reference.columns:
             # Prediction-line pattern: geom_line in red.
             p += geom_line(
-                aes(y="pred"),
+                aes(x=x, y="pred"),
                 data=ghost_reference,
                 color="red",
                 linetype="dashed",
