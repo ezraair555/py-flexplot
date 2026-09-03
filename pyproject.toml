@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "py-flexplot"
-version = "0.8.0"
+version = "0.8.2"
 description = "Python port of Dustin Fife's R visualization and analysis packages (flexplot, fifer, etc.)"
 readme = "README.md"
 authors = [
   { name = "EzraAir555", email = "ezraair555@gmail.com" }
 ]
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
   "numpy>=1.23",
@@ -25,6 +25,8 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/ezraair555/py-flexplot"
+Documentation = "https://github.com/ezraair555/py-flexplot/tree/main/docs"
+Repository = "https://github.com/ezraair555/py-flexplot"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -40,4 +42,3 @@ addopts = "-ra --strict-markers"
 #   python3 -m pytest --doctest-modules src/pyflexplot/core.py src/pyflexplot/quality.py
 # (We don't add --doctest-modules to addopts because it would re-collect
 #  existing test files under different names and slow the suite.)
-

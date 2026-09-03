@@ -29,15 +29,13 @@ This is **not** a 1:1 port. The Python port covers the parts of R's `flexplot` a
 
 ## Installation
 
-> **PyPI status:** `py-flexplot` is not yet published on PyPI. Until it is released, install directly from the Git repository.
-
-### Source install (recommended until PyPI is live)
+Install the released package from PyPI:
 
 ```bash
-pip install git+https://github.com/ezraair555/py-flexplot.git
+pip install py-flexplot
 ```
 
-Or clone and install in editable mode:
+For development from a checkout:
 
 ```bash
 git clone https://github.com/ezraair555/py-flexplot.git
