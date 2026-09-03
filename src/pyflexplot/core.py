@@ -1753,6 +1753,10 @@ def flexplot(
     # Build the base aesthetic with color/group when needed so all geoms pick it up.
     aes_kwargs = {"x": x, "y": y}
     if color:
+        # Convert numeric discrete color variable (like pclass = 1, 2, 3) to string/categorical
+        # so plotnine uses a discrete color palette rather than a continuous gradient.
+        if pd.api.types.is_numeric_dtype(plot_df[color]) and _is_discrete(plot_df[color]):
+            plot_df[color] = plot_df[color].astype(str)
         aes_kwargs["color"] = color
         aes_kwargs["group"] = color
     p = ggplot(plot_df, aes(**aes_kwargs))
@@ -1831,7 +1835,7 @@ def flexplot(
         # Binomial GLM branch — numeric binary outcome with numeric x.
         if raw_data:
             p += geom_point(alpha=alpha_point)
-        p = _add_binomial_smooth(p, data, x, y, uncertainty, level, bands)
+        p = _add_binomial_smooth(p, data, x, y, uncertainty, level, bands, color=color)
         if overlay_specs:
             p = _add_overlay_binomial(p, data, x, y, overlay_specs)
 
@@ -1853,7 +1857,7 @@ def flexplot(
             )
         if raw_data:
             p += geom_point(alpha=alpha_point)
-        p = _add_binomial_smooth(p, data, x, y, uncertainty, level, bands)
+        p = _add_binomial_smooth(p, data, x, y, uncertainty, level, bands, color=color)
         if overlay_specs:
             p = _add_overlay_binomial(p, data, x, y, overlay_specs)
 
@@ -1877,6 +1881,7 @@ def flexplot(
                 uncertainty,
                 level,
                 bands,
+                color=color,
                 random_effects=random_effects,
                 mixed_backend=mixed_backend,
             )
@@ -2104,6 +2109,7 @@ def _add_numeric_smooth(
     uncertainty: Optional[str],
     level: float,
     bands: Optional[List[float]],
+    color: Optional[str] = None,
     random_effects: Optional[str] = None,
     mixed_backend: str = "auto",
 ):
@@ -2115,6 +2121,8 @@ def _add_numeric_smooth(
     if uncertainty is None:
         # No fit at all — preserve the scatter only.
         return p
+
+    line_color = None if color else "blue"
 
     # polynomial/quadratic/cubic are OLS fits with higher-order x terms;
     # logistic/poisson/Gamma are GLMs; rlm is robust regression.  plotnine's
@@ -2151,18 +2159,18 @@ def _add_numeric_smooth(
     if bands is not None:
         levels = sorted(set(bands))
         for lvl in levels:
-            if use_loess:
-                p += geom_smooth(method="loess", level=lvl, color="blue", alpha=0.15)
-            else:
-                p += geom_smooth(method="lm", level=lvl, color="blue", alpha=0.15)
+            kwargs = {"method": "loess" if use_loess else "lm", "level": lvl, "alpha": 0.15}
+            if line_color:
+                kwargs["color"] = line_color
+            p += geom_smooth(**kwargs)
         return p
 
     # --- Single band ---
     if uncertainty == "ci":
-        if use_loess:
-            p += geom_smooth(method="loess", level=level, color="blue")
-        else:
-            p += geom_smooth(method="lm", level=level, color="blue")
+        kwargs = {"method": "loess" if use_loess else "lm", "level": level}
+        if line_color:
+            kwargs["color"] = line_color
+        p += geom_smooth(**kwargs)
         return p
 
     if uncertainty == "prediction":
@@ -2750,6 +2758,7 @@ def _add_binomial_smooth(
     uncertainty: Optional[str],
     level: float,
     bands: Optional[List[float]],
+    color: Optional[str] = None,
 ):
     """Add fitted line + uncertainty band for numeric-vs-binary (binomial GLM).
 
@@ -2760,25 +2769,30 @@ def _add_binomial_smooth(
         return p
 
     method_args = {"family": "binomial"}
+    line_color = None if color else "blue"
 
     if bands is not None:
         levels = sorted(set(bands))
         for lvl in levels:
-            p += geom_smooth(
-                method="glm",
-                method_args=method_args,
-                level=lvl,
-                color="blue",
-                alpha=0.15,
-            )
+            kwargs = {
+                "method": "glm",
+                "method_args": method_args,
+                "level": lvl,
+                "alpha": 0.15,
+            }
+            if line_color:
+                kwargs["color"] = line_color
+            p += geom_smooth(**kwargs)
         return p
 
-    p += geom_smooth(
-        method="glm",
-        method_args=method_args,
-        level=level,
-        color="blue",
-    )
+    kwargs = {
+        "method": "glm",
+        "method_args": method_args,
+        "level": level,
+    }
+    if line_color:
+        kwargs["color"] = line_color
+    p += geom_smooth(**kwargs)
     return p
 
 

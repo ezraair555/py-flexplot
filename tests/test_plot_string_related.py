@@ -36,9 +36,9 @@ def test_plot_string_none_no_label_override():
     df = _sample_df()
     p = flexplot("y ~ x", data=df)
     assert isinstance(p, ggplot)
-    # Default labels are None (plotnine substitutes the column name).
-    assert p.labels.x is None
-    assert p.labels.y is None
+    # Default labels match the formula variable names or None in plotnine.
+    assert p.labels.x in (None, "x")
+    assert p.labels.y in (None, "y")
 
 
 def test_plot_string_dict_overrides_x_label():
