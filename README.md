@@ -4,6 +4,12 @@ A **partial** Python port of Dustin Fife's [`flexplot`](https://github.com/dusti
 
 `py-flexplot` provides intelligent data visualization using a formula-based syntax, similar to the original R implementation but powered by `plotnine` for a consistent "grammar of graphics" look and feel in Python.
 
+Personal note: I have taken classes with Dustin Fife and found him to be an
+excellent teacher. This independent Python version is an appreciative effort
+to mirror his R `flexplot` work and make its ideas accessible to Python users.
+If you would like to learn statistics from him, visit
+[Simplistics](https://simplistics.net/).
+
 ![Titanic Example](docs/assets/titanic/plot2_sex.png)
 
 ## What's covered (and what isn't)
@@ -140,6 +146,25 @@ p.draw()
 ```
 
 See `docs/examples/diagnostics_workflow.md` for a longer walk-through.
+
+## Textbook example datasets
+
+The statistical examples from the [Simplistics General Linear Model
+chapter](https://simplistics.net/stats_modeling/the-general-linear-model.html#glm-approach)
+are available as reproducible loaders:
+
+```python
+from pyflexplot.datasets import load_avengers, load_diet, load_exercise_data
+
+avengers = load_avengers()
+diet = load_diet()
+exercise = load_exercise_data()
+```
+
+The loaders preserve the datasets from Dustin Fife's `flexplot` R package and
+include the upstream GPL-2 attribution. See the
+[GLM walkthrough](docs/examples/statistical_wiki_glm.md) for the one-sample,
+paired, ANOVA, regression, and logistic examples.
 
 ## Continuous Integration
 

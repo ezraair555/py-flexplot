@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent highlights
 
+- **Unreleased** — textbook dataset loaders for the Simplistics General Linear
+  Model examples: `load_avengers()`, `load_diet()`, and
+  `load_exercise_data()`, with reproducibility tests, attribution, and a
+  Python GLM walkthrough.
 - **0.8.2** — `flexplot()` mixed-effects support: `method="mixedlm"|"lmer"` (linear mixed models) and `method="glmer"` (binomial mixed model path) with `random_effects=` syntax (`group`, `(1|group)`, `(1 + x|group)`). Includes dedicated mixed-model tests and docs updates.
 - **0.8.0** — Parity fixes from the man-page-level R-flexplot review (`docs/parity_review_2026-08-31.md`): non-nested `model_comparison` + `pred.difference`; `estimates()` factor-level tables + mean differences with Cohen's d + `mc=`; `added_plot()` R semantics (last variable, `x=`, `lm_formula=`, mean offset); R `spread` tokens (`quartiles`, `sterr`); `jitter=` / `alpha=` / `raw_data=`; panel-repetition semantics for `ghost_line` with facets; standalone `standardized_beta()` / `rsq_change()` / `bf_bic()`.
 - **0.7.5** — `eta_squared()` upgraded from a single model-row to per-term partial η²_p via `statsmodels.stats.anova.anova_lm(model, typ=...)` (type-I/II/III SS); new `scatter3D()` for 2D projection of `y ~ x + z` (points or tile mode).

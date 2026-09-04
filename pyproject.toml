@@ -42,3 +42,10 @@ addopts = "-ra --strict-markers"
 #   python3 -m pytest --doctest-modules src/pyflexplot/core.py src/pyflexplot/quality.py
 # (We don't add --doctest-modules to addopts because it would re-collect
 #  existing test files under different names and slow the suite.)
+
+[tool.setuptools.package-data]
+pyflexplot = [
+  "datasets/data/*.csv",
+  "datasets/data/*.md",
+  "datasets/data/*.r-flexplot",
+]
